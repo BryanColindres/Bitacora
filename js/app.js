@@ -300,16 +300,18 @@ async function analizar() {
       body.mime = (Rec.mime || "audio/mp4").split(";")[0];
     }
     const { data, error } = await sb.functions.invoke("extraer", { body });
-    if (error || !data || data.error) throw error || new Error(data?.error);
+    if (error || !data || data.error) throw new Error(await motivoIA(error, data));
     datos = data;
   } catch (e) {
+    const motivo = e.message || "error desconocido";
+    aviso("IA: " + motivo);
     if (!texto) {
-      toast("La IA aún no puede transcribir. Escribe lo que pasó en el cuadro y guarda: el audio se guarda igual.", 6000);
+      toast("La IA no pudo transcribir: " + motivo + ". Escribe la nota y guarda; el audio se guarda igual.", 9000);
       btn.disabled = false; btn.textContent = "✨ Ordenar con IA";
       return;
     }
     datos = analisisLocal(texto);
-    toast("La IA no respondió; usé reglas simples. Revisa los datos.", 4500);
+    toast("La IA no respondió (" + motivo + "). Usé reglas simples; revisa los datos.", 7000);
   }
   rellenar(datos, texto);
   btn.disabled = false; btn.textContent = "✨ Ordenar con IA";
@@ -322,6 +324,19 @@ function blobABase64(blob) {
     fr.onerror = () => mal(fr.error);
     fr.readAsDataURL(blob);
   });
+}
+
+async function motivoIA(error, data) {
+  try {
+    if (data?.error) return data.error + (data.detalle ? " — " + String(data.detalle).slice(0, 160) : "");
+    const r = error?.context;
+    if (r && typeof r.status === "number") {
+      if (r.status === 404) return "la función “extraer” no existe todavía en Supabase";
+      const j = await r.json().catch(() => null);
+      return (j?.error || "error " + r.status) + (j?.detalle ? " — " + String(j.detalle).slice(0, 160) : "");
+    }
+    return error?.message || "sin conexión con Supabase";
+  } catch (_) { return "error desconocido"; }
 }
 
 function rellenar(d, texto) {
