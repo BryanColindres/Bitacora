@@ -466,7 +466,7 @@ function entradaHTML(r) {
 }
 
 function enlazarEntradas(refrescar) {
-  $$(".entry").forEach(el => {
+  $$(".entry[data-id], .reg[data-id]").forEach(el => {
     const id = el.dataset.id;
     el.addEventListener("click", async ev => {
       const act = ev.target.dataset?.act; if (!act) return;
@@ -485,7 +485,39 @@ function enlazarEntradas(refrescar) {
   });
 }
 
-/* ============ RESUMEN ============ */
+/* ============ RESUMEN (libros por niño) ============ */
+const PORTADAS = [
+  { a: "#2f6256", b: "#4f9382" }, { a: "#8c2f39", b: "#bd5a64" }, { a: "#27466e", b: "#4f7fb3" },
+  { a: "#a86f12", b: "#dca444" }, { a: "#5b3a73", b: "#8c68ab" }, { a: "#b2512f", b: "#dd8057" },
+  { a: "#23606c", b: "#4aa0ae" }, { a: "#4d5a2a", b: "#82954a" },
+];
+const portadaStyle = id => {
+  let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const c = PORTADAS[h % PORTADAS.length];
+  return `--c1:${c.a};--c2:${c.b}`;
+};
+const fmtCorta = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" }); };
+
+const libro = { id: null, pg: 0, pages: [], ancho: false, timer: null };
+
+const conteoDe = (regs, campo) => {
+  const m = {}; regs.forEach(r => { if (r[campo]) m[r[campo]] = (m[r[campo]] || 0) + 1; });
+  return Object.entries(m).sort((a, b) => b[1] - a[1]);
+};
+const barrasHTML = (lista, alt) => {
+  const max = Math.max(1, ...lista.map(x => x[1]));
+  return lista.map(([k, v]) => `<div class="bar ${alt ? "alt" : ""}"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(v / max) * 100}%"></div></div><b>${v}</b></div>`).join("") || `<p class="muted">Sin datos.</p>`;
+};
+const statsHTML = (regs, cls = "") => {
+  const atendidos = new Set(regs.filter(r => r.nino_id).map(r => r.nino_id)).size;
+  const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
+  return `<div class="stats ${cls}">
+    <div class="stat"><b>${regs.length}</b>Registros</div>
+    <div class="stat"><b>${atendidos}</b>Niños atendidos</div>
+    <div class="stat"><b>${regs.filter(r => r.audio_path).length}</b>Con audio</div>
+    <div class="stat"><b>${pend}</b>Seguimientos pendientes</div></div>`;
+};
+
 async function vistaResumen(ninoId) {
   const f = state.filtros = state.filtros || {};
   if (ninoId) f.nino = ninoId;
@@ -495,9 +527,10 @@ async function vistaResumen(ninoId) {
 
   $("#main").innerHTML = `
     <h2>Resumen</h2>
-    <div class="card no-print">
+    <details class="card no-print filtros">
+      <summary>🔎 Filtros</summary>
       <div class="row">
-        <label>Niño<select id="rNino"><option value="">Todos</option>${state.ninos.map(n => `<option value="${n.id}" ${n.id === f.nino ? "selected" : ""}>${esc(n.alias)}</option>`).join("")}</select></label>
+        <label>Niño<select id="rNino"><option value="">Todos (biblioteca)</option>${state.ninos.map(n => `<option value="${n.id}" ${n.id === f.nino ? "selected" : ""}>${esc(n.alias)}</option>`).join("")}</select></label>
         <label>Grado<select id="rGrado">${opts(GRADOS, f.grado, "Todos")}</select></label>
         <label>Tipo<select id="rTipo">${opts(TIPOS, f.tipo, "Todos")}</select></label>
         <label>Desde<input id="rDesde" type="date" value="${f.desde}"></label>
@@ -507,12 +540,13 @@ async function vistaResumen(ninoId) {
         <button id="rAplicar" class="btn primary">Aplicar</button>
         <button id="rImprimir" class="btn">🖨️ Imprimir / PDF</button>
       </div>
-    </div>
+    </details>
     <div id="rCuerpo"><p class="muted">Cargando…</p></div>`;
   $("#rAplicar").addEventListener("click", () => {
     Object.assign(f, { nino: $("#rNino").value, grado: $("#rGrado").value, tipo: $("#rTipo").value, desde: $("#rDesde").value, hasta: $("#rHasta").value });
     vistaResumen();
   });
+  $("#rNino").addEventListener("change", () => { f.nino = $("#rNino").value; vistaResumen(); });
   $("#rImprimir").addEventListener("click", () => window.print());
 
   let q = sb.from("registros").select("*").gte("fecha", f.desde).lte("fecha", f.hasta).order("fecha", { ascending: false }).order("created_at", { ascending: false });
@@ -522,27 +556,166 @@ async function vistaResumen(ninoId) {
   const { data: regs, error } = await q;
   if (error) { $("#rCuerpo").innerHTML = `<p class="muted">No se pudo cargar.</p>`; return; }
 
-  const conteo = (campo) => { const m = {}; regs.forEach(r => { if (r[campo]) m[r[campo]] = (m[r[campo]] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
-  const barras = (lista, alt) => { const max = Math.max(1, ...lista.map(x => x[1])); return lista.map(([k, v]) => `<div class="bar ${alt ? "alt" : ""}"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(v / max) * 100}%"></div></div><b>${v}</b></div>`).join("") || `<p class="muted">Sin datos.</p>`; };
-  const ninosAtendidos = new Set(regs.filter(r => r.nino_id).map(r => r.nino_id)).size;
-  const pendientes = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
-  const titulo = f.nino ? `Avance de ${esc(ninoPorId(f.nino)?.alias || "")}` : "Resumen general";
+  if (f.nino && ninoPorId(f.nino)) renderLibro(regs, f);
+  else { f.nino = ""; libro.id = null; renderGeneral(regs, f); }
+}
 
+/* ---- biblioteca (todos) ---- */
+function renderGeneral(regs, f) {
+  const porNino = {}; regs.forEach(r => { if (r.nino_id) porNino[r.nino_id] = (porNino[r.nino_id] || 0) + 1; });
+  const visibles = state.ninos.filter(n => n.activo || porNino[n.id]);
   $("#rCuerpo").innerHTML = `
-    <h3>${titulo} · ${fmtFecha(f.desde)} – ${fmtFecha(f.hasta)}</h3>
-    <div class="stats">
-      <div class="stat"><b>${regs.length}</b>Registros</div>
-      <div class="stat"><b>${ninosAtendidos}</b>Niños atendidos</div>
-      <div class="stat"><b>${regs.filter(r => r.audio_path).length}</b>Con audio</div>
-      <div class="stat"><b>${pendientes}</b>Seguimientos pendientes</div>
+    <h3>Biblioteca</h3>
+    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el avance de ese niño.</p>
+    <div class="shelf no-print">
+      ${visibles.map(n => `<button class="mini" data-id="${n.id}" style="${portadaStyle(n.id)}">
+        <span class="mini-spine"></span>
+        <span class="mini-name">${esc(n.alias)}</span>
+        <span class="mini-sub">${esc(n.grado || "")}</span>
+        <span class="mini-n">${porNino[n.id] || 0} registro${porNino[n.id] === 1 ? "" : "s"}</span>
+      </button>`).join("") || `<p class="muted">Aún no hay niños. Agrégalos en la pestaña Niños.</p>`}
     </div>
+    <h3>Resumen general · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
+    ${statsHTML(regs)}
     <div class="row">
-      <div class="card"><h3>Tipos de actividad</h3><div class="bars">${barras(conteo("tipo_actividad"))}</div></div>
-      <div class="card"><h3>Estado emocional</h3><div class="bars">${barras(conteo("estado_emocional"), true)}</div></div>
+      <div class="card"><h3>Tipos de actividad</h3><div class="bars">${barrasHTML(conteoDe(regs, "tipo_actividad"))}</div></div>
+      <div class="card"><h3>Estado emocional</h3><div class="bars">${barrasHTML(conteoDe(regs, "estado_emocional"), true)}</div></div>
     </div>
     <h3>Detalle</h3>
     <div class="timeline">${regs.map(entradaHTML).join("") || `<p class="muted">No hay registros con estos filtros.</p>`}</div>`;
+  $$(".mini").forEach(b => b.addEventListener("click", () => { f.nino = b.dataset.id; vistaResumen(); }));
   enlazarEntradas(() => vistaResumen());
 }
+
+/* ---- libro de un niño ---- */
+function paginaResumen(regs, f, n) {
+  return `<div class="pg-kicker">Avance</div>
+    <h3 class="pg-title">${esc(n.alias)}</h3>
+    <div class="muted" style="margin-bottom:12px">${n.grado ? esc(n.grado) + " · " : ""}${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
+    ${statsHTML(regs, "compact")}
+    <h4>Tipos de actividad</h4><div class="bars">${barrasHTML(conteoDe(regs, "tipo_actividad"))}</div>
+    <h4>Estado emocional</h4><div class="bars">${barrasHTML(conteoDe(regs, "estado_emocional"), true)}</div>`;
+}
+
+function paginaRegistro(r, acc) {
+  return `<div class="reg" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
+    <div class="reg-date">${fmtFecha(r.fecha)}</div>
+    <div class="reg-pills">
+      ${r.tipo_actividad ? `<span class="pill">${esc(r.tipo_actividad)}</span>` : ""}
+      ${r.estado_emocional ? `<span class="pill accent">${esc(r.estado_emocional)}</span>` : ""}
+      ${r.grado ? `<span class="pill">${esc(r.grado)}</span>` : ""}
+      ${r.seguimiento ? `<span class="pill ${r.seguimiento_hecho ? "" : "warn"}">${r.seguimiento_hecho ? "✔ Seguimiento hecho" : "Seguimiento pendiente"}${r.seguimiento_nota ? ": " + esc(r.seguimiento_nota) : ""}</span>` : ""}
+    </div>
+    <p class="reg-text">${esc(r.actividad)}</p>
+    ${acc && r.transcripcion && r.transcripcion !== r.actividad ? `<details class="reg-det"><summary>Ver lo que se dictó</summary><p>${esc(r.transcripcion)}</p></details>` : ""}
+    ${acc ? `<div class="actions" style="margin-top:12px">
+      ${r.audio_path ? `<button class="btn small" data-act="audio">▶ Escuchar audio</button>` : ""}
+      ${r.seguimiento && !r.seguimiento_hecho ? `<button class="btn small" data-act="hecho">Marcar seguimiento hecho</button>` : ""}
+      <button class="btn danger small" data-act="borrar">Borrar</button>
+    </div><div class="audio-slot"></div>` : ""}
+  </div>`;
+}
+
+function renderLibro(regs, f) {
+  const n = ninoPorId(f.nino);
+  const nuevo = libro.id !== n.id;
+  libro.id = n.id;
+  if (nuevo) libro.pg = 0;
+  libro.ancho = window.innerWidth >= 860;
+  const cron = [...regs].reverse();              // del más antiguo al más reciente, como un diario
+  const armar = acc => [
+    paginaResumen(regs, f, n),
+    ...cron.map(r => paginaRegistro(r, acc)),
+    ...(cron.length ? [] : [`<div class="reg-empty">Aún no hay registros para ${esc(n.alias)} con estos filtros.</div>`]),
+  ];
+  libro.pages = armar(true);
+
+  $("#rCuerpo").innerHTML = `
+    <div class="libro-wrap no-print" style="${portadaStyle(n.id)}">
+      <div class="stage ${libro.ancho ? "wide" : ""}" id="stage">
+        <div class="spread" id="spread"></div>
+        <div class="cover ${nuevo ? "" : "gone"}" id="cover">
+          <div class="cover-spine"></div>
+          <div class="cover-inner">
+            <div class="cover-kicker">Bitácora de apoyo</div>
+            <div class="cover-rule"></div>
+            <h2 class="cover-name">${esc(n.alias)}</h2>
+            <div class="cover-grade">${esc(n.grado || "")}</div>
+            <div class="cover-period">${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
+            <div class="cover-tap">Toca para abrir</div>
+          </div>
+          <div class="cover-ribbon"></div>
+        </div>
+      </div>
+      <div class="libro-nav">
+        <button class="btn" id="pgPrev" aria-label="Página anterior">◀</button>
+        <span id="pgInd" class="muted"></span>
+        <button class="btn" id="pgNext" aria-label="Página siguiente">▶</button>
+      </div>
+      <div class="actions" style="justify-content:center">
+        <button id="cerrarLibro" class="btn ghost small">📚 Cerrar libro</button>
+      </div>
+    </div>
+    <div class="book-print" style="${portadaStyle(n.id)}">
+      <h2>${esc(n.alias)}${n.grado ? " · " + esc(n.grado) : ""}</h2>
+      ${armar(false).map(p => `<div class="sheet">${p}</div>`).join("")}
+    </div>`;
+
+  pintarLibro();
+  if (nuevo) $(".libro-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#pgPrev").addEventListener("click", () => pasar(-1));
+  $("#pgNext").addEventListener("click", () => pasar(1));
+  $("#cerrarLibro").addEventListener("click", () => { f.nino = ""; libro.id = null; vistaResumen(); });
+
+  const cover = $("#cover");
+  const abrir = () => {
+    if (cover.classList.contains("open")) return;
+    clearTimeout(libro.timer);
+    cover.classList.add("open");
+    setTimeout(() => cover.classList.add("gone"), 1000);
+  };
+  if (!cover.classList.contains("gone")) {
+    cover.addEventListener("click", abrir);
+    libro.timer = setTimeout(abrir, 700);
+  }
+
+  let x0 = null, y0 = 0;
+  const st = $("#stage");
+  st.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  st.addEventListener("touchend", e => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 50) pasar(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+
+function pasar(d) {
+  const paso = libro.ancho ? 2 : 1;
+  const nuevo = libro.pg + d * paso;
+  if (nuevo < 0 || nuevo >= libro.pages.length) return;
+  libro.pg = nuevo;
+  pintarLibro(d > 0 ? "next" : "prev");
+}
+
+function pintarLibro(dir) {
+  const L = libro, paso = L.ancho ? 2 : 1;
+  L.pg = Math.max(0, Math.min(L.pg, L.pages.length - 1));
+  if (L.ancho) L.pg -= L.pg % 2;
+  const idx = L.ancho ? [L.pg, L.pg + 1] : [L.pg];
+  const sp = $("#spread");
+  sp.className = "spread" + (L.ancho ? " wide" : "") + (dir ? " turn-" + dir : "");
+  sp.innerHTML = idx.map(i => i < L.pages.length
+    ? `<div class="sheet">${L.pages[i]}<div class="pg-num">${i + 1}</div></div>`
+    : `<div class="sheet blank"></div>`).join("");
+  $("#pgInd").textContent = (L.ancho ? `${L.pg + 1}–${Math.min(L.pg + 2, L.pages.length)}` : `${L.pg + 1}`) + ` de ${L.pages.length}`;
+  $("#pgPrev").disabled = L.pg <= 0;
+  $("#pgNext").disabled = L.pg + paso >= L.pages.length;
+  enlazarEntradas(() => vistaResumen());
+}
+
+document.addEventListener("keydown", e => {
+  if (state.view !== "resumen" || !$("#spread")) return;
+  if (e.key === "ArrowRight") pasar(1); else if (e.key === "ArrowLeft") pasar(-1);
+});
 
 init();
