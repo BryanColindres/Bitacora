@@ -73,14 +73,14 @@ ${JSON.stringify(regs).slice(0, 24000)}`;
     const prompt = `Eres un asistente que ordena notas de una maestra de apoyo de aprendizaje en español.
 Lee el dictado (texto y/o audio adjunto) y devuelve SOLO un JSON con estas claves:
 - transcripcion: transcripción fiel de lo dicho en el audio (o el texto recibido si no hay audio).
-- nombre: nombre, iniciales o apodo del niño mencionado si trabajó con UN solo niño (null si fue con varios). Si coincide con uno de la lista de niños registrados, usa EXACTAMENTE ese texto de la lista.
+- nombre: el niño con el que trabajó si fue UN solo niño (null si fue con varios o no se menciona). Normalmente son iniciales (2 o 3 letras como "WF", "J.R.", "JC") o un apodo, dichos justo después de "el niño", "la niña" o del grado/sección. Si se menciona, SIEMPRE devuélvelo, aunque no esté en la lista de niños registrados; escríbelo en mayúsculas sin puntos (ej. "WF"). Si coincide con uno de la lista, usa EXACTAMENTE ese texto de la lista.
 - grupal: true si trabajó con varios niños a la vez (ej. "se trabajó con JC, BA y el niño tal"), si no false.
 - participantes: si es grupal, los nombres/iniciales de los niños mencionados separados por coma (ej. "JC, BA"), si no null.
 - grado: grado escolar mencionado (ej. "Quinto grado"), o null.
 - seccion: sección del grado si la menciona (ej. "B", "A", "Azul"), o null. Solo la letra o nombre, sin la palabra "sección".
 - fecha: fecha en formato YYYY-MM-DD si la menciona; si dice "hoy" o no la menciona, usa ${hoy ?? "null"}.
 - tipo_actividad: una de ${JSON.stringify(TIPOS)}.
-- actividad: descripción breve (1-3 oraciones) de LO QUE SE HIZO, en tono profesional. IMPORTANTE: NO menciones el nombre ni las iniciales del niño o de los niños, ni el grado ni la sección, ni frases como "se trabajó con el niño X": esos datos van en los otros campos. Empieza directamente por la actividad. Ejemplo: en vez de "Se trabajó con el niño JC en lectura de sílabas" escribe "Lectura de sílabas trabadas con apoyo visual; logró leer seis palabras sin ayuda". No inventes datos.
+- actividad: lo que ella dijo que se hizo, SIN AGREGAR NADA. Sé fiel a sus palabras: solo corrige la redacción y el orden (puntuación, muletillas, repeticiones) y quita lo que ya va en otros campos (nombre o iniciales del niño, grado, sección, fecha, frases como "se trabajó con el niño X"). PROHIBIDO inventar o completar: no agregues objetivos, estrategias, apoyos, supervisión, resultados, avances ni adjetivos que ella no dijo. Si ella dijo poco, la actividad es corta. Ejemplo: si dijo "el niño WF de quinto grado sección B trabajó lectura y escritura" → "Trabajó lectura y escritura." Si dijo "trabajamos lectura de sílabas y le costó la r" → "Lectura de sílabas; le costó la r."
 - estado_emocional: uno de ${JSON.stringify(ESTADOS)}, o null si no se menciona.
 - seguimiento: true si queda algo pendiente o por retomar, si no false.
 - seguimiento_nota: qué queda pendiente, o null.
