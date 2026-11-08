@@ -667,19 +667,23 @@ async function vistaResumen(ninoId) {
   $("#rImprimir").addEventListener("click", descargarInforme);
 
   const ent = entidad(f.nino);
-  let q = sb.from("registros").select("*").gte("fecha", f.desde).lte("fecha", f.hasta).order("fecha", { ascending: false }).order("created_at", { ascending: false });
+  const { data: regs, error } = await traerRegistros(ent, f.desde, f.hasta, f);
+  if (error) { $("#rCuerpo").innerHTML = `<p class="muted">No se pudo cargar.</p>`; return; }
+
+  if (ent) renderLibro(regs, f, ent);
+  else { f.nino = ""; libro.id = null; renderGeneral(regs, f); }
+}
+
+function traerRegistros(ent, desde, hasta, filtros) {
+  let q = sb.from("registros").select("*").gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false }).order("created_at", { ascending: false });
   if (ent?.grupal) {
     q = q.eq("grupal", true);
     q = ent.grado ? q.eq("grado", ent.grado) : q.is("grado", null);
     q = ent.seccion ? q.eq("seccion", ent.seccion) : q.is("seccion", null);
   } else if (ent) q = q.or(filtroNino(ent.id));
-  if (f.grado) q = q.eq("grado", f.grado);
-  if (f.tipo) q = q.eq("tipo_actividad", f.tipo);
-  const { data: regs, error } = await q;
-  if (error) { $("#rCuerpo").innerHTML = `<p class="muted">No se pudo cargar.</p>`; return; }
-
-  if (ent) renderLibro(regs, f, ent);
-  else { f.nino = ""; libro.id = null; renderGeneral(regs, f); }
+  if (filtros?.grado) q = q.eq("grado", filtros.grado);
+  if (filtros?.tipo) q = q.eq("tipo_actividad", filtros.tipo);
+  return q;
 }
 
 /* ---- biblioteca (todos) ---- */
@@ -696,7 +700,7 @@ function renderGeneral(regs, f) {
   ];
   $("#rCuerpo").innerHTML = `
     <h3 class="no-print">Biblioteca</h3>
-    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el avance de ese niño o del grupo.</p>
+    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el proceso de ese niño o del grupo.</p>
     <div class="shelf no-print">
       ${libros.map(b => `<button class="mini" data-id="${esc(b.id)}" style="${portadaStyle(b.id)}">
         <span class="mini-spine"></span>
@@ -848,12 +852,63 @@ function cargarDocx() {
   });
 }
 
+const fechaISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+function pedirPeriodo(desde, hasta) {
+  return new Promise(ok => {
+    const bg = document.createElement("div");
+    bg.className = "modal-bg";
+    bg.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+      <h3>¿De qué período es el informe?</h3>
+      <div class="presets">
+        <button type="button" class="btn small" data-p="mes">Este mes</button>
+        <button type="button" class="btn small" data-p="pasado">Mes pasado</button>
+        <button type="button" class="btn small" data-p="tres">Últimos 3 meses</button>
+        <button type="button" class="btn small" data-p="anio">Todo el año</button>
+      </div>
+      <div class="row">
+        <label>Desde<input id="pDesde" type="date" value="${desde}"></label>
+        <label>Hasta<input id="pHasta" type="date" value="${hasta}"></label>
+      </div>
+      <p id="pMsg" class="msg"></p>
+      <div class="actions">
+        <button type="button" id="pOk" class="btn primary">📄 Descargar Word</button>
+        <button type="button" id="pNo" class="btn ghost">Cancelar</button>
+      </div></div>`;
+    document.body.appendChild(bg);
+    const cerrar = v => { bg.remove(); ok(v); };
+    const hoy = new Date();
+    const rangos = {
+      mes: [new Date(hoy.getFullYear(), hoy.getMonth(), 1), hoy],
+      pasado: [new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1), new Date(hoy.getFullYear(), hoy.getMonth(), 0)],
+      tres: [new Date(hoy.getFullYear(), hoy.getMonth() - 3, hoy.getDate()), hoy],
+      anio: [new Date(hoy.getFullYear(), 0, 1), hoy],
+    };
+    $$("[data-p]", bg).forEach(b => b.addEventListener("click", () => {
+      const [a, z] = rangos[b.dataset.p];
+      $("#pDesde", bg).value = fechaISO(a); $("#pHasta", bg).value = fechaISO(z);
+    }));
+    $("#pOk", bg).addEventListener("click", () => {
+      const d = $("#pDesde", bg).value, h = $("#pHasta", bg).value;
+      if (!d || !h) { $("#pMsg", bg).textContent = "Elige las dos fechas."; return; }
+      if (d > h) { $("#pMsg", bg).textContent = "“Desde” no puede ser después de “Hasta”."; return; }
+      cerrar({ desde: d, hasta: h });
+    });
+    $("#pNo", bg).addEventListener("click", () => cerrar(null));
+    bg.addEventListener("click", e => { if (e.target === bg) cerrar(null); });
+  });
+}
+
 async function descargarInforme() {
   if (!ultimoInforme) { toast("Espera a que cargue el resumen."); return; }
   try {
-    await cargarDocx();
-    const { ent, regs, f } = ultimoInforme;
-    const nombre = await armarWord(ent, regs, f);
+    const { ent, f } = ultimoInforme;
+    const per = await pedirPeriodo(f.desde, f.hasta);
+    if (!per) return;
+    toast("Preparando el informe…", 8000);
+    const [, { data: regs, error }] = await Promise.all([cargarDocx(), traerRegistros(ent, per.desde, per.hasta, null)]);
+    if (error) throw error;
+    const nombre = await armarWord(ent, regs, per);
     toast("📄 Descargado: " + nombre, 5000);
   } catch (e) {
     console.error(e);
@@ -915,9 +970,10 @@ async function armarWord(ent, regs, f) {
     sections: [{
       properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } },
       children: [
-        P([T("INFORME DE AVANCE · APOYO DE APRENDIZAJE EN ESPAÑOL", { bold: true, size: 18, color: col })]),
+        P([T("INFORME DE PROCESO · APOYO DE APRENDIZAJE EN ESPAÑOL", { bold: true, size: 18, color: col })]),
         P([T(titulo, { bold: true, size: 52, color: col })], { spacing: { after: 60 } }),
         P([T(sub, { size: 22, color: "444444" })]),
+        ...(typeof CONFIG !== "undefined" && CONFIG.DOCENTE ? [P([T("Docente de apoyo: " + CONFIG.DOCENTE, { size: 22, color: "444444" })])] : []),
         P([T(`Generado el ${hoy} · Documento confidencial`, { size: 20, color: "666666" })], { spacing: { after: 240 }, border: { bottom: { style: D.BorderStyle.SINGLE, size: 12, color: col, space: 6 } } }),
         tabla,
         P([T("Registro de actividades", { bold: true, size: 28, color: col })], { spacing: { before: 340, after: 120 }, heading: D.HeadingLevel.HEADING_2 }),
