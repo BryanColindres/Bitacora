@@ -249,3 +249,5 @@ input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;accent-color:va
 .audio-listo-t{font-weight:700;color:var(--primary-d);margin-bottom:8px}
 .audio-listo audio{width:100%;margin-bottom:8px}
 .reg-date{font-family:"Kalam","Bradley Hand","Segoe Print","Comic Sans MS",cursive!important}
+
+.toast{border-radius:18px;padding:14px 20px;line-height:1.35;width:max-content;max-width:calc(100vw - 32px)}

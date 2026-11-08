@@ -335,6 +335,8 @@ async function motivoIA(error, data) {
       const j = await r.json().catch(() => null);
       return (j?.error || "error " + r.status) + (j?.detalle ? " — " + String(j.detalle).slice(0, 160) : "");
     }
+    if (error?.name === "FunctionsFetchError" || /Failed to send a request/i.test(error?.message || ""))
+      return "no se pudo contactar la función “extraer”: casi seguro aún no está creada en Supabase";
     return error?.message || "sin conexión con Supabase";
   } catch (_) { return "error desconocido"; }
 }
