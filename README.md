@@ -41,3 +41,9 @@ Todo en capas gratuitas. Nada que instalar en el iPad: solo se abre el enlace en
 3. Los informes se descargan como Word editable (.docx); la librería está en `js/vendor/docx.js`
    (se carga solo al descargar). Los informes no incluyen el estado emocional.
 4. Los registros grupales forman un libro por grado y sección: “Grupal · Quinto grado · sección B”.
+
+## Actualización 03 (grupales en el libro de cada niño)
+1. Supabase → SQL Editor → pegar `supabase/migracion_03_participantes.sql` → Run.
+2. Un registro grupal se guarda en el libro grupal (grado + sección) y en el libro individual
+   de cada niño que participó. Los participantes que no existan se crean con el grado y la
+   sección del grupo. Al eliminar un niño, sus registros grupales se conservan.

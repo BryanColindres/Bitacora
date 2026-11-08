@@ -14,6 +14,9 @@ const norm = s => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase
 const hoyLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const fmtFecha = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); };
 const gradoTxt = (g, sec) => [g, sec ? "sección " + sec : ""].filter(Boolean).join(" · ");
+const claveNombre = s => norm(s).replace(/[^a-z0-9]/g, "");
+const dePartic = r => [...(r.nino_id ? [r.nino_id] : []), ...(r.nino_ids || [])];
+const filtroNino = id => `nino_id.eq.${id},nino_ids.cs.{${id}}`;
 const opts = (arr, sel, vacio) => (vacio ? `<option value="">${esc(vacio)}</option>` : "") + arr.map(x => `<option ${x === sel ? "selected" : ""}>${esc(x)}</option>`).join("");
 
 const state = { user: null, ninos: [], view: "grabar" };
@@ -150,7 +153,7 @@ function poblarSelectNino(sel = "") {
 function actualizarExtra() {
   const v = $("#fNino").value;
   $("#fExtraWrap").classList.toggle("hidden", v !== "__nuevo__" && v !== "__grupo__");
-  $("#fExtraLbl").textContent = v === "__grupo__" ? "Niños que participaron (iniciales, separadas por coma)" : "Iniciales o apodo del niño nuevo";
+  $("#fExtraLbl").textContent = v === "__grupo__" ? "Niños que participaron (iniciales, separadas por coma). Se guarda también en el libro de cada uno" : "Iniciales o apodo del niño nuevo";
   if (v && v !== "__nuevo__" && v !== "__grupo__") {
     const n = ninoPorId(v);
     if (n?.grado && !$("#fGrado").value) $("#fGrado").value = n.grado;
@@ -382,13 +385,15 @@ async function guardar() {
   btn.disabled = true; btn.textContent = "Guardando…";
 
   try {
-    let nino_id = null, grupo = null, grupal = false, participantes = null;
+    let nino_id = null, grupo = null, grupal = false, participantes = null, nino_ids = [], creados = [];
     if (sel === "__nuevo__") {
       const { data, error } = await sb.from("ninos").insert({ alias: extra, grado, seccion }).select().single();
       if (error) throw error;
       nino_id = data.id; await cargarNinos();
     } else if (sel === "__grupo__") {
       grupal = true; participantes = extra || null; grupo = "Grupal · " + gradoTxt(grado, seccion);
+      const res = await resolverParticipantes(extra, grado, seccion);
+      nino_ids = res.ids; creados = res.creados;
     } else nino_id = sel;
 
     let audio_path = null;
@@ -399,14 +404,17 @@ async function guardar() {
     }
 
     const { error } = await sb.from("registros").insert({
-      nino_id, grupo, grupal, participantes, grado, seccion, fecha: $("#fFecha").value || hoyLocal(),
+      nino_id, grupo, grupal, participantes, nino_ids, grado, seccion, fecha: $("#fFecha").value || hoyLocal(),
       tipo_actividad: $("#fTipo").value || null, actividad, estado_emocional: $("#fEstado").value || null,
       seguimiento: $("#fSeg").checked, seguimiento_nota: $("#fSegNota").value.trim() || null,
       transcripcion: $("#texto").value.trim() || null, audio_path,
     });
     if (error) throw error;
     Rec.blob = null; Rec.chunks = [];
-    toast(audio_path ? "✅ Registro guardado con su audio" : "✅ Registro guardado");
+    const aviso2 = grupal && nino_ids.length
+      ? `✅ Guardado en el libro grupal y en el de ${nino_ids.length} niño${nino_ids.length === 1 ? "" : "s"}${creados.length ? " (nuevos: " + creados.join(", ") + ")" : ""}`
+      : (audio_path ? "✅ Registro guardado con su audio" : "✅ Registro guardado");
+    toast(aviso2, creados.length ? 6500 : 3200);
     vistaGrabar();
   } catch (e) {
     console.error(e);
@@ -415,16 +423,36 @@ async function guardar() {
   }
 }
 
+/* Relaciona "JC, BA y MR" con los niños registrados; crea los que no existan */
+async function resolverParticipantes(texto, grado, seccion) {
+  const nombres = [...new Map(String(texto || "").split(/[,;]|\sy\s/i).map(x => x.trim()).filter(Boolean).map(x => [claveNombre(x), x])).values()];
+  const ids = [], creados = [];
+  for (const nombre of nombres) {
+    const k = claveNombre(nombre); if (!k) continue;
+    const cand = state.ninos.filter(n => claveNombre(n.alias) === k);
+    let n = cand.find(c => (c.grado || "") === (grado || "") && (c.seccion || "") === (seccion || "")) || cand[0];
+    if (!n) {
+      const { data, error } = await sb.from("ninos").insert({ alias: nombre, grado, seccion }).select().single();
+      if (error) throw error;
+      n = data; creados.push(nombre);
+    }
+    if (!ids.includes(n.id)) ids.push(n.id);
+  }
+  if (creados.length) await cargarNinos();
+  return { ids, creados };
+}
+
 /* ============ NIÑOS ============ */
 async function vistaNinos() {
   $("#main").innerHTML = `<h2>Niños</h2><p class="muted">Cargando…</p>`;
-  const { data: regs } = await sb.from("registros").select("nino_id,fecha,seguimiento,seguimiento_hecho");
+  const { data: regs } = await sb.from("registros").select("nino_id,nino_ids,fecha,seguimiento,seguimiento_hecho");
   const stats = {};
   (regs || []).forEach(r => {
-    if (!r.nino_id) return;
-    const s = stats[r.nino_id] ||= { n: 0, ult: "", pend: 0 };
-    s.n++; if (r.fecha > s.ult) s.ult = r.fecha;
-    if (r.seguimiento && !r.seguimiento_hecho) s.pend++;
+    dePartic(r).forEach(nid => {
+      const s = stats[nid] ||= { n: 0, ult: "", pend: 0 };
+      s.n++; if (r.fecha > s.ult) s.ult = r.fecha;
+      if (r.seguimiento && !r.seguimiento_hecho) s.pend++;
+    });
   });
   const lista = state.ninos;
   $("#main").innerHTML = `
@@ -466,7 +494,7 @@ async function vistaFicha(id) {
   const n = ninoPorId(id); if (!n) return go("ninos");
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.view === "ninos"));
   $("#main").innerHTML = `<p class="muted">Cargando…</p>`;
-  const { data: regs, error } = await sb.from("registros").select("*").eq("nino_id", id).order("fecha", { ascending: false }).order("created_at", { ascending: false });
+  const { data: regs, error } = await sb.from("registros").select("*").or(filtroNino(id)).order("fecha", { ascending: false }).order("created_at", { ascending: false });
   if (error) { toast("No se pudieron cargar los registros"); return; }
   $("#main").innerHTML = `
     <button class="btn ghost small no-print" id="back">← Niños</button>
@@ -495,9 +523,11 @@ async function vistaFicha(id) {
     await cargarNinos(); vistaFicha(id);
   });
   $("#delNino").addEventListener("click", async () => {
-    if (!confirm(`¿Eliminar a ${n.alias}?\n\nTambién se borrarán sus ${regs.length} registro${regs.length === 1 ? "" : "s"} y sus audios. No se puede deshacer.`)) return;
-    const audios = regs.map(r => r.audio_path).filter(Boolean);
+    const propios = regs.filter(r => r.nino_id === id), grupales = regs.filter(r => r.nino_id !== id);
+    if (!confirm(`¿Eliminar a ${n.alias}?\n\nTambién se borrarán sus ${propios.length} registro${propios.length === 1 ? "" : "s"} individuales y sus audios.${grupales.length ? `\nLos ${grupales.length} registros grupales se conservan en el libro grupal.` : ""}\nNo se puede deshacer.`)) return;
+    const audios = propios.map(r => r.audio_path).filter(Boolean);
     if (audios.length) await sb.storage.from("audios").remove(audios);
+    for (const g of grupales) await sb.from("registros").update({ nino_ids: (g.nino_ids || []).filter(x => x !== id) }).eq("id", g.id);
     const { error: e1 } = await sb.from("registros").delete().eq("nino_id", id);
     const { error: e2 } = e1 ? { error: e1 } : await sb.from("ninos").delete().eq("id", id);
     if (e2) { toast("No se pudo eliminar."); return; }
@@ -508,7 +538,7 @@ async function vistaFicha(id) {
 
 function entradaHTML(r) {
   const quien = r.nino_id ? (ninoPorId(r.nino_id)?.alias || "") : (r.grupal || r.grupo) ? "👥 " + (r.grupo || "Grupal") + (r.participantes ? " (" + r.participantes + ")" : "") : "";
-  return `<div class="card entry" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
+  return `<div class="card entry" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}" data-grupal="${r.grupal ? 1 : ""}">
     <div class="date">${fmtFecha(r.fecha)}${quien ? " · " + esc(quien) : ""}</div>
     <div>${esc(r.actividad)}</div>
     <div style="margin-top:8px">
@@ -538,7 +568,7 @@ function enlazarEntradas(refrescar) {
       } else if (act === "hecho") {
         await sb.from("registros").update({ seguimiento_hecho: true }).eq("id", id); refrescar();
       } else if (act === "borrar") {
-        if (!confirm("¿Borrar este registro? No se puede deshacer.")) return;
+        if (!confirm(el.dataset.grupal ? "Este registro es grupal: se borrará del libro grupal y del libro de todos los niños que participaron. ¿Seguir?" : "¿Borrar este registro? No se puede deshacer.")) return;
         if (el.dataset.audio) await sb.storage.from("audios").remove([el.dataset.audio]);
         await sb.from("registros").delete().eq("id", id); toast("Registro borrado"); refrescar();
       }
@@ -587,7 +617,7 @@ const barrasHTML = (lista, alt) => {
   return lista.map(([k, v]) => `<div class="bar ${alt ? "alt" : ""}"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(v / max) * 100}%"></div></div><b>${v}</b></div>`).join("") || `<p class="muted">Sin datos.</p>`;
 };
 const statsHTML = (regs, cls = "") => {
-  const atendidos = new Set(regs.filter(r => r.nino_id).map(r => r.nino_id)).size;
+  const atendidos = new Set(regs.flatMap(dePartic)).size;
   const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
   return `<div class="stats ${cls}">
     <div class="stat"><b>${regs.length}</b>Registros</div>
@@ -642,7 +672,7 @@ async function vistaResumen(ninoId) {
     q = q.eq("grupal", true);
     q = ent.grado ? q.eq("grado", ent.grado) : q.is("grado", null);
     q = ent.seccion ? q.eq("seccion", ent.seccion) : q.is("seccion", null);
-  } else if (ent) q = q.eq("nino_id", ent.id);
+  } else if (ent) q = q.or(filtroNino(ent.id));
   if (f.grado) q = q.eq("grado", f.grado);
   if (f.tipo) q = q.eq("tipo_actividad", f.tipo);
   const { data: regs, error } = await q;
@@ -657,8 +687,8 @@ function renderGeneral(regs, f) {
   ultimoInforme = { ent: null, regs, f };
   const porNino = {}, porGrupo = {};
   regs.forEach(r => {
-    if (r.nino_id) porNino[r.nino_id] = (porNino[r.nino_id] || 0) + 1;
-    else if (r.grupal || r.grupo) { const k = claveGrupo(r.grado, r.seccion); porGrupo[k] = (porGrupo[k] || 0) + 1; }
+    dePartic(r).forEach(nid => { porNino[nid] = (porNino[nid] || 0) + 1; });
+    if (!r.nino_id && (r.grupal || r.grupo)) { const k = claveGrupo(r.grado, r.seccion); porGrupo[k] = (porGrupo[k] || 0) + 1; }
   });
   const libros = [
     ...(state.grupos || []).map(k => ({ id: k, nombre: "Grupal", sub: entidad(k).sub, n: porGrupo[k] || 0 })),
@@ -695,9 +725,9 @@ function renderGeneral(regs, f) {
 function paginaRegistro(r, acc) {
   const meta = [r.tipo_actividad, r.estado_emocional ? "ánimo: " + r.estado_emocional.toLowerCase() : ""].filter(Boolean).join(" · ");
   const seg = r.seguimiento ? (r.seguimiento_hecho ? "✔ Seguimiento hecho" : "★ Pendiente") + (r.seguimiento_nota ? ": " + r.seguimiento_nota : "") : "";
-  return `<div class="reg" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
+  return `<div class="reg" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}" data-grupal="${r.grupal ? 1 : ""}">
     <div class="reg-date">${esc(fmtLarga(r.fecha))}</div>
-    ${r.participantes ? `<div class="reg-meta">Participaron: ${esc(r.participantes)}</div>` : ""}
+    ${r.participantes ? `<div class="reg-meta">${r.grupal && !String(libro.id).startsWith("g|") ? "Trabajo grupal · " : ""}Participaron: ${esc(r.participantes)}</div>` : ""}
     <p class="reg-text">${esc(r.actividad)}</p>
     ${meta ? `<div class="reg-meta">${esc(meta)}</div>` : ""}
     ${seg ? `<div class="reg-seg ${r.seguimiento_hecho ? "ok" : ""}">${esc(seg)}</div>` : ""}
@@ -845,7 +875,7 @@ async function armarWord(ent, regs, f) {
   const tipos = conteoDe(regs, "tipo_actividad").map(([k, v]) => `${k} (${v})`).join(", ") || "—";
   const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
   const filas = [["Registros", String(regs.length)]];
-  if (!ent) filas.push(["Niños atendidos", String(new Set(regs.filter(r => r.nino_id).map(r => r.nino_id)).size)]);
+  if (!ent) filas.push(["Niños atendidos", String(new Set(regs.flatMap(dePartic)).size)]);
   if (ent?.grupal) {
     const parts = [...new Set(regs.flatMap(r => (r.participantes || "").split(/[,;]/).map(x => x.trim()).filter(Boolean)))];
     filas.push(["Participantes", parts.join(", ") || "—"]);
@@ -866,7 +896,7 @@ async function armarWord(ent, regs, f) {
   const borde = { left: { style: D.BorderStyle.SINGLE, size: 18, color: col, space: 8 } };
   const entradas = cron.flatMap(r => {
     const quien = ent ? "" : quienDe(r);
-    const meta = [r.tipo_actividad, ent ? "" : (r.nino_id ? "" : "")].filter(Boolean).join(" · ");
+    const meta = [r.tipo_actividad, ent && !ent.grupal && r.grupal ? "Trabajo grupal" : ""].filter(Boolean).join(" · ");
     const lineas = String(r.actividad || "").split("\n");
     const out = [
       P([T(cap(fmtLarga(r.fecha)) + (quien ? " · " + quien : ""), { bold: true, size: 23 })], { spacing: { before: 220, after: 20 }, keepNext: true, indent: { left: 180 }, border: borde }),
