@@ -6,6 +6,7 @@ create table if not exists public.ninos (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   alias text not null,            -- iniciales o apodo, NO nombre completo
   grado text,
+  seccion text,
   notas text,
   activo boolean not null default true,
   created_at timestamptz not null default now()
@@ -15,8 +16,11 @@ create table if not exists public.registros (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   nino_id uuid references public.ninos(id) on delete set null,
-  grupo text,                     -- si el registro fue de varios niños (ej. "Tercer grado")
+  grupo text,                     -- etiqueta del grupo (ej. "Grupal · Quinto grado B")
+  grupal boolean not null default false,
+  participantes text,             -- iniciales de los niños que participaron
   grado text,
+  seccion text,
   fecha date not null default current_date,
   tipo_actividad text,
   actividad text not null,

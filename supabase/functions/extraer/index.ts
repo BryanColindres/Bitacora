@@ -38,9 +38,11 @@ Deno.serve(async (req) => {
     const prompt = `Eres un asistente que ordena notas de una maestra de apoyo de aprendizaje en español.
 Lee el dictado (texto y/o audio adjunto) y devuelve SOLO un JSON con estas claves:
 - transcripcion: transcripción fiel de lo dicho en el audio (o el texto recibido si no hay audio).
-- nombre: nombre, iniciales o apodo del niño mencionado (null si habla de un grupo o no hay). Si coincide con uno de la lista de niños registrados, usa EXACTAMENTE ese texto de la lista.
-- grupo: descripción si habla de varios niños (ej. "Tercer grado"), si no null.
-- grado: grado escolar mencionado (ej. "Cuarto grado"), o null.
+- nombre: nombre, iniciales o apodo del niño mencionado si trabajó con UN solo niño (null si fue con varios). Si coincide con uno de la lista de niños registrados, usa EXACTAMENTE ese texto de la lista.
+- grupal: true si trabajó con varios niños a la vez (ej. "se trabajó con JC, BA y el niño tal"), si no false.
+- participantes: si es grupal, los nombres/iniciales de los niños mencionados separados por coma (ej. "JC, BA"), si no null.
+- grado: grado escolar mencionado (ej. "Quinto grado"), o null.
+- seccion: sección del grado si la menciona (ej. "B", "A", "Azul"), o null. Solo la letra o nombre, sin la palabra "sección".
 - fecha: fecha en formato YYYY-MM-DD si la menciona; si dice "hoy" o no la menciona, usa ${hoy ?? "null"}.
 - tipo_actividad: una de ${JSON.stringify(TIPOS)}.
 - actividad: resumen claro y breve (1-3 oraciones) de lo que se hizo, en tercera persona y tono profesional. No inventes datos.

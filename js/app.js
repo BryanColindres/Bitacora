@@ -13,6 +13,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const norm = s => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const hoyLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const fmtFecha = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); };
+const gradoTxt = (g, sec) => [g, sec ? "sección " + sec : ""].filter(Boolean).join(" · ");
 const opts = (arr, sel, vacio) => (vacio ? `<option value="">${esc(vacio)}</option>` : "") + arr.map(x => `<option ${x === sel ? "selected" : ""}>${esc(x)}</option>`).join("");
 
 const state = { user: null, ninos: [], view: "grabar" };
@@ -105,6 +106,9 @@ function vistaGrabar() {
         <label>Grado
           <select id="fGrado">${opts(GRADOS, "", "—")}</select>
         </label>
+        <label>Sección
+          <input id="fSeccion" type="text" maxlength="12" placeholder="Ej. B" autocomplete="off">
+        </label>
         <label>Fecha
           <input id="fFecha" type="date" value="${hoyLocal()}">
         </label>
@@ -137,19 +141,20 @@ function vistaGrabar() {
 }
 
 function poblarSelectNino(sel = "") {
-  const activos = state.ninos.filter(n => n.activo);
   $("#fNino").innerHTML = `<option value="">— Elegir —</option>` +
-    activos.map(n => `<option value="${n.id}" ${n.id === sel ? "selected" : ""}>${esc(n.alias)}${n.grado ? " · " + esc(n.grado) : ""}</option>`).join("") +
+    state.ninos.map(n => `<option value="${n.id}" ${n.id === sel ? "selected" : ""}>${esc(n.alias)}${gradoTxt(n.grado, n.seccion) ? " · " + esc(gradoTxt(n.grado, n.seccion)) : ""}</option>`).join("") +
     `<option value="__nuevo__" ${sel === "__nuevo__" ? "selected" : ""}>＋ Niño nuevo…</option>` +
-    `<option value="__grupo__" ${sel === "__grupo__" ? "selected" : ""}>👥 Grupo / varios niños</option>`;
+    `<option value="__grupo__" ${sel === "__grupo__" ? "selected" : ""}>👥 Grupal (varios niños)</option>`;
   actualizarExtra();
 }
 function actualizarExtra() {
   const v = $("#fNino").value;
   $("#fExtraWrap").classList.toggle("hidden", v !== "__nuevo__" && v !== "__grupo__");
-  $("#fExtraLbl").textContent = v === "__grupo__" ? "Descripción del grupo (ej. Tercer grado)" : "Iniciales o apodo del niño nuevo";
+  $("#fExtraLbl").textContent = v === "__grupo__" ? "Niños que participaron (iniciales, separadas por coma)" : "Iniciales o apodo del niño nuevo";
   if (v && v !== "__nuevo__" && v !== "__grupo__") {
-    const n = ninoPorId(v); if (n?.grado && !$("#fGrado").value) $("#fGrado").value = n.grado;
+    const n = ninoPorId(v);
+    if (n?.grado && !$("#fGrado").value) $("#fGrado").value = n.grado;
+    if (n?.seccion && !$("#fSeccion").value) $("#fSeccion").value = n.seccion;
   }
 }
 
@@ -267,7 +272,7 @@ function detener() {
 /* ---- análisis ---- */
 function analisisLocal(texto) {
   const t = norm(texto);
-  const out = { nombre: null, grupo: null, grado: null, fecha: hoyLocal(), tipo_actividad: null, actividad: texto, estado_emocional: null, seguimiento: false, seguimiento_nota: null };
+  const out = { nombre: null, grupal: false, participantes: null, seccion: null, grado: null, fecha: hoyLocal(), tipo_actividad: null, actividad: texto, estado_emocional: null, seguimiento: false, seguimiento_nota: null };
   const n = state.ninos.find(n => t.includes(norm(n.alias)));
   if (n) out.nombre = n.alias;
   const g = [["primer", "Primer grado"], ["segundo", "Segundo grado"], ["tercer", "Tercer grado"], ["cuarto", "Cuarto grado"],
@@ -282,7 +287,8 @@ function analisisLocal(texto) {
   else if (/motivad|contento|animado/.test(t)) out.estado_emocional = "Motivado";
   else if (/tranquil|calmad/.test(t)) out.estado_emocional = "Tranquilo";
   if (/pendiente|seguimiento|retomar|volver a/.test(t)) out.seguimiento = true;
-  if (!n && /(varios|grupo|ninos de)/.test(t)) out.grupo = g ? g[1] : "Grupo";
+  const sec = t.match(/seccion\s+([a-z0-9]+)/); if (sec) out.seccion = sec[1].toUpperCase();
+  if (!n && /(varios|grupal|grupo|ninos de|con los ninos)/.test(t)) out.grupal = true;
   return out;
 }
 
@@ -345,12 +351,13 @@ function rellenar(d, texto) {
   if (d.transcripcion && !$("#texto").value.trim()) { $("#texto").value = d.transcripcion; texto = d.transcripcion; }
   const match = d.nombre ? state.ninos.find(n => norm(n.alias) === norm(d.nombre)) : null;
   if (match) { poblarSelectNino(match.id); }
+  else if (d.grupal || d.grupo) { poblarSelectNino("__grupo__"); $("#fExtra").value = d.participantes || ""; }
   else if (d.nombre) { poblarSelectNino("__nuevo__"); $("#fExtra").value = d.nombre; }
-  else if (d.grupo) { poblarSelectNino("__grupo__"); $("#fExtra").value = d.grupo; }
   else poblarSelectNino("");
   const setSel = (id, v, lista) => { $(id).value = lista.includes(v) ? v : ""; };
   setSel("#fGrado", d.grado, GRADOS);
   if (!$("#fGrado").value && match?.grado) $("#fGrado").value = match.grado;
+  $("#fSeccion").value = d.seccion ? String(d.seccion).replace(/^secci[oó]n\s+/i, "").trim() : (match?.seccion || "");
   setSel("#fTipo", d.tipo_actividad, TIPOS);
   setSel("#fEstado", d.estado_emocional, ESTADOS);
   if (/^\d{4}-\d{2}-\d{2}$/.test(d.fecha || "")) $("#fFecha").value = d.fecha;
@@ -369,17 +376,20 @@ async function guardar() {
   const extra = $("#fExtra").value.trim();
   if (!actividad) { toast(Rec.blob ? "Falta la actividad: toca “Ordenar con IA” o escríbela. El audio se guarda igual." : "Falta describir la actividad."); return; }
   if (!sel) { toast("Elige un niño o un grupo."); return; }
-  if ((sel === "__nuevo__" || sel === "__grupo__") && !extra) { toast("Escribe el nombre o el grupo."); return; }
+  const grado = $("#fGrado").value || null, seccion = $("#fSeccion").value.trim() || null;
+  if (sel === "__nuevo__" && !extra) { toast("Escribe las iniciales o el apodo del niño."); return; }
+  if (sel === "__grupo__" && !grado) { toast("Para un registro grupal elige el grado (y la sección si tiene)."); return; }
   btn.disabled = true; btn.textContent = "Guardando…";
 
   try {
-    let nino_id = null, grupo = null;
+    let nino_id = null, grupo = null, grupal = false, participantes = null;
     if (sel === "__nuevo__") {
-      const { data, error } = await sb.from("ninos").insert({ alias: extra, grado: $("#fGrado").value || null }).select().single();
+      const { data, error } = await sb.from("ninos").insert({ alias: extra, grado, seccion }).select().single();
       if (error) throw error;
       nino_id = data.id; await cargarNinos();
-    } else if (sel === "__grupo__") grupo = extra;
-    else nino_id = sel;
+    } else if (sel === "__grupo__") {
+      grupal = true; participantes = extra || null; grupo = "Grupal · " + gradoTxt(grado, seccion);
+    } else nino_id = sel;
 
     let audio_path = null;
     if (Rec.blob && $("#chkAudio").checked) {
@@ -389,7 +399,7 @@ async function guardar() {
     }
 
     const { error } = await sb.from("registros").insert({
-      nino_id, grupo, grado: $("#fGrado").value || null, fecha: $("#fFecha").value || hoyLocal(),
+      nino_id, grupo, grupal, participantes, grado, seccion, fecha: $("#fFecha").value || hoyLocal(),
       tipo_actividad: $("#fTipo").value || null, actividad, estado_emocional: $("#fEstado").value || null,
       seguimiento: $("#fSeg").checked, seguimiento_nota: $("#fSegNota").value.trim() || null,
       transcripcion: $("#texto").value.trim() || null, audio_path,
@@ -424,16 +434,17 @@ async function vistaNinos() {
       <div class="row">
         <label>Iniciales o apodo<input id="nAlias" type="text" placeholder="Ej. J.R."></label>
         <label>Grado<select id="nGrado">${opts(GRADOS, "", "—")}</select></label>
+        <label>Sección<input id="nSeccion" type="text" maxlength="12" placeholder="Ej. B" autocomplete="off"></label>
       </div>
       <button id="nAdd" class="btn primary">Agregar</button>
     </div>
     <div class="grid">
       ${lista.map(n => {
         const s = stats[n.id] || { n: 0, ult: "", pend: 0 };
-        return `<div class="card nino" data-id="${n.id}" style="${n.activo ? "" : "opacity:.55"}">
+        return `<div class="card nino" data-id="${n.id}">
           <div class="avatar">${esc(n.alias.slice(0, 2).toUpperCase())}</div>
           <h3>${esc(n.alias)}</h3>
-          <div class="muted">${esc(n.grado || "Sin grado")}</div>
+          <div class="muted">${esc(gradoTxt(n.grado, n.seccion) || "Sin grado")}</div>
           <div style="margin-top:8px">
             <span class="pill">${s.n} registro${s.n === 1 ? "" : "s"}</span>
             ${s.pend ? `<span class="pill warn">${s.pend} pendiente${s.pend === 1 ? "" : "s"}</span>` : ""}
@@ -443,7 +454,7 @@ async function vistaNinos() {
     </div>`;
   $("#nAdd").addEventListener("click", async () => {
     const alias = $("#nAlias").value.trim(); if (!alias) { toast("Escribe las iniciales o el apodo."); return; }
-    const { error } = await sb.from("ninos").insert({ alias, grado: $("#nGrado").value || null });
+    const { error } = await sb.from("ninos").insert({ alias, grado: $("#nGrado").value || null, seccion: $("#nSeccion").value.trim() || null });
     if (error) { toast("No se pudo agregar."); return; }
     await cargarNinos(); toast("Niño agregado"); vistaNinos();
   });
@@ -461,11 +472,11 @@ async function vistaFicha(id) {
     <button class="btn ghost small no-print" id="back">← Niños</button>
     <div class="card" style="margin-top:12px">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
-        <div><h2 style="margin:0">${esc(n.alias)}</h2><div class="muted">${esc(n.grado || "Sin grado")}</div></div>
+        <div><h2 style="margin:0">${esc(n.alias)}</h2><div class="muted">${esc(gradoTxt(n.grado, n.seccion) || "Sin grado")}</div></div>
         <div class="actions no-print">
           <button id="verResumen" class="btn primary small">📊 Ver resumen</button>
           <button id="editNino" class="btn small">Editar</button>
-          <button id="archNino" class="btn ghost small">${n.activo ? "Archivar" : "Reactivar"}</button>
+          <button id="delNino" class="btn danger small">Eliminar</button>
         </div>
       </div>
       ${n.notas ? `<p>${esc(n.notas)}</p>` : ""}
@@ -477,26 +488,33 @@ async function vistaFicha(id) {
   $("#editNino").addEventListener("click", async () => {
     const alias = prompt("Iniciales o apodo:", n.alias); if (alias === null) return;
     const grado = prompt("Grado (ej. Cuarto grado):", n.grado || ""); if (grado === null) return;
+    const seccion = prompt("Sección (ej. B), puede quedar vacía:", n.seccion || ""); if (seccion === null) return;
     const notas = prompt("Notas generales (opcional):", n.notas || ""); if (notas === null) return;
-    const { error } = await sb.from("ninos").update({ alias: alias.trim() || n.alias, grado: grado.trim() || null, notas: notas.trim() || null }).eq("id", id);
+    const { error } = await sb.from("ninos").update({ alias: alias.trim() || n.alias, grado: grado.trim() || null, seccion: seccion.trim() || null, notas: notas.trim() || null }).eq("id", id);
     if (error) { toast("No se pudo editar."); return; }
     await cargarNinos(); vistaFicha(id);
   });
-  $("#archNino").addEventListener("click", async () => {
-    await sb.from("ninos").update({ activo: !n.activo }).eq("id", id); await cargarNinos(); vistaFicha(id);
+  $("#delNino").addEventListener("click", async () => {
+    if (!confirm(`¿Eliminar a ${n.alias}?\n\nTambién se borrarán sus ${regs.length} registro${regs.length === 1 ? "" : "s"} y sus audios. No se puede deshacer.`)) return;
+    const audios = regs.map(r => r.audio_path).filter(Boolean);
+    if (audios.length) await sb.storage.from("audios").remove(audios);
+    const { error: e1 } = await sb.from("registros").delete().eq("nino_id", id);
+    const { error: e2 } = e1 ? { error: e1 } : await sb.from("ninos").delete().eq("id", id);
+    if (e2) { toast("No se pudo eliminar."); return; }
+    await cargarNinos(); toast("Niño eliminado"); go("ninos");
   });
   enlazarEntradas(() => vistaFicha(id));
 }
 
 function entradaHTML(r) {
-  const quien = r.nino_id ? (ninoPorId(r.nino_id)?.alias || "") : (r.grupo ? "👥 " + r.grupo : "");
+  const quien = r.nino_id ? (ninoPorId(r.nino_id)?.alias || "") : (r.grupal || r.grupo) ? "👥 " + (r.grupo || "Grupal") + (r.participantes ? " (" + r.participantes + ")" : "") : "";
   return `<div class="card entry" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
     <div class="date">${fmtFecha(r.fecha)}${quien ? " · " + esc(quien) : ""}</div>
     <div>${esc(r.actividad)}</div>
     <div style="margin-top:8px">
       ${r.tipo_actividad ? `<span class="pill">${esc(r.tipo_actividad)}</span>` : ""}
       ${r.estado_emocional ? `<span class="pill accent">${esc(r.estado_emocional)}</span>` : ""}
-      ${r.grado ? `<span class="pill">${esc(r.grado)}</span>` : ""}
+      ${r.grado ? `<span class="pill">${esc(gradoTxt(r.grado, r.seccion))}</span>` : ""}
       ${r.seguimiento ? `<span class="pill ${r.seguimiento_hecho ? "" : "warn"}">${r.seguimiento_hecho ? "✔ Seguimiento hecho" : "Seguimiento pendiente"}${r.seguimiento_nota ? ": " + esc(r.seguimiento_nota) : ""}</span>` : ""}
     </div>
     <div class="actions no-print" style="margin-top:10px">
@@ -528,20 +546,37 @@ function enlazarEntradas(refrescar) {
   });
 }
 
-/* ============ RESUMEN (libros por niño) ============ */
+/* ============ RESUMEN (libros por niño y grupales) ============ */
 const PORTADAS = [
   { a: "#2f6256", b: "#4f9382" }, { a: "#8c2f39", b: "#bd5a64" }, { a: "#27466e", b: "#4f7fb3" },
   { a: "#a86f12", b: "#dca444" }, { a: "#5b3a73", b: "#8c68ab" }, { a: "#b2512f", b: "#dd8057" },
   { a: "#23606c", b: "#4aa0ae" }, { a: "#4d5a2a", b: "#82954a" },
 ];
-const portadaStyle = id => {
+const colorDe = id => {
   let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const c = PORTADAS[h % PORTADAS.length];
-  return `--c1:${c.a};--c2:${c.b}`;
+  return PORTADAS[h % PORTADAS.length];
 };
+const portadaStyle = id => { const c = colorDe(id); return `--c1:${c.a};--c2:${c.b}`; };
 const fmtCorta = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" }); };
+const fmtLarga = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); };
+const cap = s => (s || "").charAt(0).toUpperCase() + (s || "").slice(1);
+
+/* Un "libro" es un niño o un grupo (grado + sección). Los grupos usan la clave g|grado|seccion */
+const claveGrupo = (g, s) => `g|${g || ""}|${s || ""}`;
+function entidad(id) {
+  if (!id) return null;
+  if (String(id).startsWith("g|")) {
+    const [, g, s] = id.split("|");
+    const sub = gradoTxt(g, s) || "Sin grado";
+    return { id, grupal: true, nombre: "Grupal", grado: g, seccion: s, sub, titulo: "Grupal · " + sub };
+  }
+  const n = ninoPorId(id);
+  return n ? { id, grupal: false, nombre: n.alias, grado: n.grado, seccion: n.seccion, sub: gradoTxt(n.grado, n.seccion), titulo: n.alias } : null;
+}
+const quienDe = r => r.nino_id ? (ninoPorId(r.nino_id)?.alias || "") : (r.grupal || r.grupo) ? "Grupal · " + (gradoTxt(r.grado, r.seccion) || "sin grado") : "";
 
 const libro = { id: null, pg: 0, pages: [], ancho: false, timer: null };
+let ultimoInforme = null;   // { ent, regs, f } para el botón de Word
 
 const conteoDe = (regs, campo) => {
   const m = {}; regs.forEach(r => { if (r[campo]) m[r[campo]] = (m[r[campo]] || 0) + 1; });
@@ -568,12 +603,21 @@ async function vistaResumen(ninoId) {
   if (!f.hasta) f.hasta = hoyLocal();
   f.nino = f.nino || ""; f.grado = f.grado || ""; f.tipo = f.tipo || "";
 
+  // grupos existentes (para la lista de libros y el filtro)
+  const { data: gs } = await sb.from("registros").select("grado,seccion").eq("grupal", true);
+  const grupos = [...new Map((gs || []).map(r => [claveGrupo(r.grado, r.seccion), r])).keys()]
+    .sort((a, b) => GRADOS.indexOf(a.split("|")[1]) - GRADOS.indexOf(b.split("|")[1]) || a.localeCompare(b));
+  state.grupos = grupos;
+
   $("#main").innerHTML = `
     <h2 class="no-print">Resumen</h2>
     <details class="card no-print filtros">
       <summary>🔎 Filtros</summary>
       <div class="row">
-        <label>Niño<select id="rNino"><option value="">Todos (biblioteca)</option>${state.ninos.map(n => `<option value="${n.id}" ${n.id === f.nino ? "selected" : ""}>${esc(n.alias)}</option>`).join("")}</select></label>
+        <label>Libro<select id="rNino"><option value="">Todos (biblioteca)</option>
+          ${state.ninos.map(n => `<option value="${n.id}" ${n.id === f.nino ? "selected" : ""}>${esc(n.alias)}</option>`).join("")}
+          ${grupos.length ? `<optgroup label="Grupales">${grupos.map(k => `<option value="${esc(k)}" ${k === f.nino ? "selected" : ""}>${esc(entidad(k).titulo)}</option>`).join("")}</optgroup>` : ""}
+        </select></label>
         <label>Grado<select id="rGrado">${opts(GRADOS, f.grado, "Todos")}</select></label>
         <label>Tipo<select id="rTipo">${opts(TIPOS, f.tipo, "Todos")}</select></label>
         <label>Desde<input id="rDesde" type="date" value="${f.desde}"></label>
@@ -581,7 +625,7 @@ async function vistaResumen(ninoId) {
       </div>
       <div class="actions">
         <button id="rAplicar" class="btn primary">Aplicar</button>
-        <button id="rImprimir" class="btn">🖨️ Imprimir / PDF</button>
+        <button id="rImprimir" class="btn">📄 Descargar Word</button>
       </div>
     </details>
     <div id="rCuerpo"><p class="muted">Cargando…</p></div>`;
@@ -590,39 +634,51 @@ async function vistaResumen(ninoId) {
     vistaResumen();
   });
   $("#rNino").addEventListener("change", () => { f.nino = $("#rNino").value; vistaResumen(); });
-  $("#rImprimir").addEventListener("click", () => window.print());
+  $("#rImprimir").addEventListener("click", descargarInforme);
 
+  const ent = entidad(f.nino);
   let q = sb.from("registros").select("*").gte("fecha", f.desde).lte("fecha", f.hasta).order("fecha", { ascending: false }).order("created_at", { ascending: false });
-  if (f.nino) q = q.eq("nino_id", f.nino);
+  if (ent?.grupal) {
+    q = q.eq("grupal", true);
+    q = ent.grado ? q.eq("grado", ent.grado) : q.is("grado", null);
+    q = ent.seccion ? q.eq("seccion", ent.seccion) : q.is("seccion", null);
+  } else if (ent) q = q.eq("nino_id", ent.id);
   if (f.grado) q = q.eq("grado", f.grado);
   if (f.tipo) q = q.eq("tipo_actividad", f.tipo);
   const { data: regs, error } = await q;
   if (error) { $("#rCuerpo").innerHTML = `<p class="muted">No se pudo cargar.</p>`; return; }
 
-  if (f.nino && ninoPorId(f.nino)) renderLibro(regs, f);
+  if (ent) renderLibro(regs, f, ent);
   else { f.nino = ""; libro.id = null; renderGeneral(regs, f); }
 }
 
 /* ---- biblioteca (todos) ---- */
 function renderGeneral(regs, f) {
-  const porNino = {}; regs.forEach(r => { if (r.nino_id) porNino[r.nino_id] = (porNino[r.nino_id] || 0) + 1; });
-  const visibles = state.ninos.filter(n => n.activo || porNino[n.id]);
+  ultimoInforme = { ent: null, regs, f };
+  const porNino = {}, porGrupo = {};
+  regs.forEach(r => {
+    if (r.nino_id) porNino[r.nino_id] = (porNino[r.nino_id] || 0) + 1;
+    else if (r.grupal || r.grupo) { const k = claveGrupo(r.grado, r.seccion); porGrupo[k] = (porGrupo[k] || 0) + 1; }
+  });
+  const libros = [
+    ...(state.grupos || []).map(k => ({ id: k, nombre: "Grupal", sub: entidad(k).sub, n: porGrupo[k] || 0 })),
+    ...state.ninos.map(n => ({ id: n.id, nombre: n.alias, sub: gradoTxt(n.grado, n.seccion), n: porNino[n.id] || 0 })),
+  ];
   $("#rCuerpo").innerHTML = `
     <h3 class="no-print">Biblioteca</h3>
-    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el avance de ese niño.</p>
+    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el avance de ese niño o del grupo.</p>
     <div class="shelf no-print">
-      ${visibles.map(n => `<button class="mini" data-id="${n.id}" style="${portadaStyle(n.id)}">
+      ${libros.map(b => `<button class="mini" data-id="${esc(b.id)}" style="${portadaStyle(b.id)}">
         <span class="mini-spine"></span>
-        <span class="mini-name">${esc(n.alias)}</span>
-        <span class="mini-sub">${esc(n.grado || "")}</span>
-        <span class="mini-n">${porNino[n.id] || 0} registro${porNino[n.id] === 1 ? "" : "s"}</span>
-      </button>`).join("") || `<p class="muted">Aún no hay niños. Agrégalos en la pestaña Niños.</p>`}
+        <span class="mini-name">${esc(b.nombre)}</span>
+        <span class="mini-sub">${esc(b.sub)}</span>
+        <span class="mini-n">${b.n} registro${b.n === 1 ? "" : "s"}</span>
+      </button>`).join("") || `<p class="muted">Aún no hay libros. Agrega niños en la pestaña Niños o guarda un registro.</p>`}
     </div>
     <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <h3 style="margin:0">Resumen general · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
-      <button id="imprimirGen" class="btn primary small">🖨️ Imprimir informe</button>
+      <button id="imprimirGen" class="btn primary small">📄 Descargar Word</button>
     </div>
-    <h3 class="solo-print">Informe general de apoyo · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
     ${statsHTML(regs)}
     <div class="row">
       <div class="card"><h3>Tipos de actividad</h3><div class="bars">${barrasHTML(conteoDe(regs, "tipo_actividad"))}</div></div>
@@ -630,19 +686,18 @@ function renderGeneral(regs, f) {
     </div>
     <h3>Detalle</h3>
     <div class="timeline">${regs.map(entradaHTML).join("") || `<p class="muted">No hay registros con estos filtros.</p>`}</div>`;
-  $("#imprimirGen").addEventListener("click", () => window.print());
+  $("#imprimirGen").addEventListener("click", descargarInforme);
   $$(".mini").forEach(b => b.addEventListener("click", () => { f.nino = b.dataset.id; vistaResumen(); }));
   enlazarEntradas(() => vistaResumen());
 }
 
-/* ---- libro de un niño ---- */
-const fmtLarga = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); };
-
+/* ---- libro (niño o grupo) ---- */
 function paginaRegistro(r, acc) {
   const meta = [r.tipo_actividad, r.estado_emocional ? "ánimo: " + r.estado_emocional.toLowerCase() : ""].filter(Boolean).join(" · ");
   const seg = r.seguimiento ? (r.seguimiento_hecho ? "✔ Seguimiento hecho" : "★ Pendiente") + (r.seguimiento_nota ? ": " + r.seguimiento_nota : "") : "";
   return `<div class="reg" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
     <div class="reg-date">${esc(fmtLarga(r.fecha))}</div>
+    ${r.participantes ? `<div class="reg-meta">Participaron: ${esc(r.participantes)}</div>` : ""}
     <p class="reg-text">${esc(r.actividad)}</p>
     ${meta ? `<div class="reg-meta">${esc(meta)}</div>` : ""}
     ${seg ? `<div class="reg-seg ${r.seguimiento_hecho ? "ok" : ""}">${esc(seg)}</div>` : ""}
@@ -654,45 +709,17 @@ function paginaRegistro(r, acc) {
   </div>`;
 }
 
-function informeHTML(n, regs, f, cron) {
-  const tipos = conteoDe(regs, "tipo_actividad").map(([k, v]) => `${esc(k)} (${v})`).join(", ") || "—";
-  const estados = conteoDe(regs, "estado_emocional").map(([k, v]) => `${esc(k)} (${v})`).join(", ") || "—";
-  const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
-  const hoy = new Date().toLocaleDateString("es-HN", { day: "numeric", month: "long", year: "numeric" });
-  return `<div class="informe" style="${portadaStyle(n.id)}">
-    <div class="inf-head">
-      <div class="inf-kicker">Informe de avance · Apoyo de aprendizaje en español</div>
-      <h1>${esc(n.alias)}</h1>
-      <div class="inf-sub">${n.grado ? esc(n.grado) + " · " : ""}Período: ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
-      <div class="inf-sub">Generado el ${hoy} · Documento confidencial</div>
-    </div>
-    <table class="inf-res">
-      <tr><th>Registros</th><td>${regs.length}</td><th>Seguimientos pendientes</th><td>${pend}</td></tr>
-      <tr><th>Actividades</th><td colspan="3">${tipos}</td></tr>
-      <tr><th>Estado emocional</th><td colspan="3">${estados}</td></tr>
-    </table>
-    <h3>Registro de actividades</h3>
-    ${cron.map(r => `<div class="inf-reg">
-      <div class="inf-fecha">${esc(fmtLarga(r.fecha))}</div>
-      <div class="inf-meta">${[r.tipo_actividad, r.estado_emocional ? "Ánimo: " + r.estado_emocional : "", r.grado].filter(Boolean).map(esc).join(" · ")}</div>
-      <p>${esc(r.actividad)}</p>
-      ${r.seguimiento ? `<div class="inf-seg">${r.seguimiento_hecho ? "Seguimiento realizado" : "Seguimiento pendiente"}${r.seguimiento_nota ? ": " + esc(r.seguimiento_nota) : ""}</div>` : ""}
-    </div>`).join("") || `<p>No hay registros en este período.</p>`}
-  </div>`;
-}
-
-function renderLibro(regs, f) {
-  const n = ninoPorId(f.nino);
+function renderLibro(regs, f, n) {
+  ultimoInforme = { ent: n, regs, f };
   const nuevo = libro.id !== n.id;
   libro.id = n.id;
   if (nuevo) libro.pg = 0;
   libro.ancho = window.innerWidth >= 860;
   const cron = [...regs].reverse();              // del más antiguo al más reciente, como un diario
-  const armar = acc => [
-    ...cron.map(r => paginaRegistro(r, acc)),
-    ...(cron.length ? [] : [`<div class="reg-empty">Todavía no hay nada escrito de ${esc(n.alias)} en estas fechas.</div>`]),
+  libro.pages = [
+    ...cron.map(r => paginaRegistro(r, true)),
+    ...(cron.length ? [] : [`<div class="reg-empty">Todavía no hay nada escrito en ${esc(n.titulo)} en estas fechas.</div>`]),
   ];
-  libro.pages = armar(true);
 
   $("#rCuerpo").innerHTML = `
     <div class="libro-wrap no-print" style="${portadaStyle(n.id)}">
@@ -703,8 +730,8 @@ function renderLibro(regs, f) {
           <div class="cover-inner">
             <div class="cover-kicker">Bitácora de apoyo</div>
             <div class="cover-rule"></div>
-            <h2 class="cover-name">${esc(n.alias)}</h2>
-            <div class="cover-grade">${esc(n.grado || "")}</div>
+            <h2 class="cover-name">${esc(n.nombre)}</h2>
+            <div class="cover-grade">${esc(n.sub)}</div>
             <div class="cover-period">${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
             <div class="cover-tap">Toca para abrir</div>
           </div>
@@ -717,17 +744,16 @@ function renderLibro(regs, f) {
         <button class="btn" id="pgNext" aria-label="Página siguiente">▶</button>
       </div>
       <div class="actions" style="justify-content:center">
-        <button id="imprimirLibro" class="btn primary small">🖨️ Imprimir informe</button>
+        <button id="imprimirLibro" class="btn primary small">📄 Descargar informe (Word)</button>
         <button id="cerrarLibro" class="btn ghost small">📚 Cerrar libro</button>
       </div>
-    </div>
-    ${informeHTML(n, regs, f, cron)}`;
+    </div>`;
 
   pintarLibro();
   if (nuevo) $(".libro-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
   $("#pgPrev").addEventListener("click", () => pasar(-1));
   $("#pgNext").addEventListener("click", () => pasar(1));
-  $("#imprimirLibro").addEventListener("click", () => window.print());
+  $("#imprimirLibro").addEventListener("click", descargarInforme);
   $("#cerrarLibro").addEventListener("click", () => { f.nino = ""; libro.id = null; vistaResumen(); });
 
   const cover = $("#cover");
@@ -780,5 +806,104 @@ document.addEventListener("keydown", e => {
   if (state.view !== "resumen" || !$("#spread")) return;
   if (e.key === "ArrowRight") pasar(1); else if (e.key === "ArrowLeft") pasar(-1);
 });
+
+/* ============ INFORME EN WORD (.docx editable) ============ */
+function cargarDocx() {
+  if (window.docx) return Promise.resolve();
+  return new Promise((ok, mal) => {
+    const s = document.createElement("script");
+    s.src = "js/vendor/docx.js?v=1";
+    s.onload = ok; s.onerror = () => mal(new Error("no se pudo cargar el generador de Word"));
+    document.head.appendChild(s);
+  });
+}
+
+async function descargarInforme() {
+  if (!ultimoInforme) { toast("Espera a que cargue el resumen."); return; }
+  try {
+    await cargarDocx();
+    const { ent, regs, f } = ultimoInforme;
+    const nombre = await armarWord(ent, regs, f);
+    toast("📄 Descargado: " + nombre, 5000);
+  } catch (e) {
+    console.error(e);
+    toast("No se pudo crear el Word: " + (e.message || "error"), 6000);
+  }
+}
+
+async function armarWord(ent, regs, f) {
+  const D = window.docx;
+  const col = (ent ? colorDe(ent.id) : PORTADAS[0]).a.slice(1).toUpperCase();
+  const cron = [...regs].reverse();
+  const hoy = new Date().toLocaleDateString("es-HN", { day: "numeric", month: "long", year: "numeric" });
+  const titulo = ent ? ent.titulo : "Informe general";
+  const sub = (ent && !ent.grupal && ent.sub ? ent.sub + " · " : "") + `Período: ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}`;
+
+  const T = (text, o = {}) => new D.TextRun({ text, font: "Calibri", ...o });
+  const P = (children, o = {}) => new D.Paragraph({ children, ...o });
+
+  const tipos = conteoDe(regs, "tipo_actividad").map(([k, v]) => `${k} (${v})`).join(", ") || "—";
+  const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
+  const filas = [["Registros", String(regs.length)]];
+  if (!ent) filas.push(["Niños atendidos", String(new Set(regs.filter(r => r.nino_id).map(r => r.nino_id)).size)]);
+  if (ent?.grupal) {
+    const parts = [...new Set(regs.flatMap(r => (r.participantes || "").split(/[,;]/).map(x => x.trim()).filter(Boolean)))];
+    filas.push(["Participantes", parts.join(", ") || "—"]);
+  }
+  filas.push(["Seguimientos pendientes", String(pend)], ["Actividades trabajadas", tipos]);   // sin estado emocional
+
+  const celda = (texto, w, negrita) => new D.TableCell({
+    width: { size: w, type: D.WidthType.PERCENTAGE },
+    shading: { type: D.ShadingType.CLEAR, fill: negrita ? "F2F2F2" : "FFFFFF", color: "auto" },
+    margins: { top: 70, bottom: 70, left: 110, right: 110 },
+    children: [P([T(texto, { bold: negrita, size: 21 })])],
+  });
+  const tabla = new D.Table({
+    width: { size: 100, type: D.WidthType.PERCENTAGE },
+    rows: filas.map(([k, v]) => new D.TableRow({ children: [celda(k, 30, true), celda(v, 70, false)] })),
+  });
+
+  const borde = { left: { style: D.BorderStyle.SINGLE, size: 18, color: col, space: 8 } };
+  const entradas = cron.flatMap(r => {
+    const quien = ent ? "" : quienDe(r);
+    const meta = [r.tipo_actividad, ent ? "" : (r.nino_id ? "" : "")].filter(Boolean).join(" · ");
+    const lineas = String(r.actividad || "").split("\n");
+    const out = [
+      P([T(cap(fmtLarga(r.fecha)) + (quien ? " · " + quien : ""), { bold: true, size: 23 })], { spacing: { before: 220, after: 20 }, keepNext: true, indent: { left: 180 }, border: borde }),
+    ];
+    if (meta) out.push(P([T(meta, { size: 19, color: "666666" })], { keepNext: true, indent: { left: 180 }, border: borde }));
+    if (r.participantes) out.push(P([T("Participaron: " + r.participantes, { size: 20, color: "444444" })], { keepNext: true, indent: { left: 180 }, border: borde }));
+    out.push(P(lineas.map((l, i) => T(l, { size: 22, break: i ? 1 : 0 })), { spacing: { after: 40 }, indent: { left: 180 }, border: borde }));
+    if (r.seguimiento) out.push(P([T(`Seguimiento ${r.seguimiento_hecho ? "realizado" : "pendiente"}${r.seguimiento_nota ? ": " + r.seguimiento_nota : ""}`, { italics: true, size: 21, color: "7A2D1A" })], { indent: { left: 180 }, border: borde }));
+    return out;
+  });
+
+  const doc = new D.Document({
+    creator: "Bitácora de apoyo",
+    title: titulo,
+    styles: { default: { document: { run: { font: "Calibri", size: 22 } } } },
+    sections: [{
+      properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } },
+      children: [
+        P([T("INFORME DE AVANCE · APOYO DE APRENDIZAJE EN ESPAÑOL", { bold: true, size: 18, color: col })]),
+        P([T(titulo, { bold: true, size: 52, color: col })], { spacing: { after: 60 } }),
+        P([T(sub, { size: 22, color: "444444" })]),
+        P([T(`Generado el ${hoy} · Documento confidencial`, { size: 20, color: "666666" })], { spacing: { after: 240 }, border: { bottom: { style: D.BorderStyle.SINGLE, size: 12, color: col, space: 6 } } }),
+        tabla,
+        P([T("Registro de actividades", { bold: true, size: 28, color: col })], { spacing: { before: 340, after: 120 }, heading: D.HeadingLevel.HEADING_2 }),
+        ...(entradas.length ? entradas : [P([T("No hay registros en este período.", { size: 22 })])]),
+      ],
+    }],
+  });
+
+  const blob = await D.Packer.toBlob(doc);
+  const slug = titulo.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const nombre = `${/^Informe/.test(slug) ? slug : "Informe_" + slug}_${hoyLocal()}.docx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return nombre;
+}
 
 init();

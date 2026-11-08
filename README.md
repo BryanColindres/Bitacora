@@ -33,3 +33,11 @@ Todo en capas gratuitas. Nada que instalar en el iPad: solo se abre el enlace en
 - Probar primero en el iPad institucional que Safari permite el micrófono y el dictado.
   Si el dictado y la grabación de audio chocan, desmarcar “Guardar también el audio”.
 - Los audios van a un bucket privado; cada usuaria solo accede a su carpeta.
+
+## Actualización 02 (sección, grupales, Word)
+1. Supabase → SQL Editor → pegar `supabase/migracion_02_seccion_grupal.sql` → Run.
+2. Volver a desplegar la función `extraer` con el contenido nuevo de
+   `supabase/functions/extraer/index.ts` (ahora reconoce sección y registros grupales).
+3. Los informes se descargan como Word editable (.docx); la librería está en `js/vendor/docx.js`
+   (se carga solo al descargar). Los informes no incluyen el estado emocional.
+4. Los registros grupales forman un libro por grado y sección: “Grupal · Quinto grado · sección B”.
