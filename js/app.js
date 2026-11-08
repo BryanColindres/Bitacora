@@ -40,7 +40,9 @@ $("#loginForm").addEventListener("submit", async e => {
   e.preventDefault();
   $("#loginMsg").textContent = "";
   const { error } = await sb.auth.signInWithPassword({ email: $("#loginEmail").value.trim(), password: $("#loginPass").value });
-  if (error) $("#loginMsg").textContent = "Correo o contraseña incorrectos.";
+  if (error) $("#loginMsg").textContent = (error.status === 400 || /invalid login/i.test(error.message || ""))
+    ? "Correo o contraseña incorrectos."
+    : "No se pudo conectar con el servidor. Revisa tu internet e inténtalo otra vez.";
 });
 $("#btnSalir").addEventListener("click", () => sb.auth.signOut());
 
