@@ -76,6 +76,7 @@ function vistaGrabar() {
       <div class="rec-zone">
         <button id="mic" class="mic" aria-label="Grabar">🎙️</button>
         <div id="recStatus" class="rec-status">Toca el micrófono, habla y vuelve a tocar para terminar. Ej.: “J.R., cuarto grado, hoy trabajamos…”</div>
+        <div id="audioListo" class="audio-listo hidden"></div>
         <label class="check" style="justify-content:center;margin:6px 0 0"><input type="checkbox" id="chkAudio" checked> Grabar audio (la IA lo transcribe y lo guarda)</label>
         <div class="hint">Recomendado. Si lo desmarcas se usa el dictado del navegador, que depende del dispositivo.</div>
       </div>
@@ -131,7 +132,7 @@ function vistaGrabar() {
   $("#fSeg").addEventListener("change", () => $("#fSegWrap").classList.toggle("hidden", !$("#fSeg").checked));
   $("#mic").addEventListener("click", () => (Rec.activo ? detener() : iniciar()));
   $("#btnAnalizar").addEventListener("click", analizar);
-  $("#btnLimpiar").addEventListener("click", () => { $("#texto").value = ""; Rec.blob = null; Rec.chunks = []; });
+  $("#btnLimpiar").addEventListener("click", () => { $("#texto").value = ""; descartarAudio(); });
   $("#btnGuardar").addEventListener("click", guardar);
 }
 
@@ -167,7 +168,7 @@ async function iniciar() {
       Rec.mime = Rec.mr.mimeType || "audio/mp4";
       Rec.ext = Rec.mime.includes("mp4") ? "m4a" : "webm";
       Rec.mr.ondataavailable = e => { if (e.data.size) Rec.chunks.push(e.data); };
-      Rec.mr.onstop = () => { Rec.blob = new Blob(Rec.chunks, { type: Rec.mime }); };
+      Rec.mr.onstop = () => { Rec.blob = new Blob(Rec.chunks, { type: Rec.mime }); mostrarAudioListo(); };
       Rec.mr.start();
     } catch (e) {
       Rec.mr = null;
@@ -175,7 +176,12 @@ async function iniciar() {
     }
   }
 
-  if (Rec.mr) { aviso("Grabando… toca el botón para terminar."); return; }
+  if (Rec.mr) {
+    Rec.t0 = Date.now();
+    const pinta = () => { const t = Math.round((Date.now() - Rec.t0) / 1000); aviso(`🔴 Grabando… ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")} · toca el botón para terminar`); };
+    pinta(); Rec.tick = setInterval(pinta, 500);
+    return;
+  }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { aviso("Este navegador no tiene dictado. Escribe el texto a mano."); return; }
   lanzarDictado(SR);
@@ -227,7 +233,27 @@ function lanzarDictado(SR) {
   Rec.recog = r;
 }
 
+function descartarAudio() {
+  Rec.blob = null; Rec.chunks = [];
+  if (Rec.url) { URL.revokeObjectURL(Rec.url); Rec.url = null; }
+  const box = $("#audioListo"); if (box) { box.classList.add("hidden"); box.innerHTML = ""; }
+}
+
+function mostrarAudioListo() {
+  const box = $("#audioListo"); if (!box || !Rec.blob) return;
+  if (Rec.url) URL.revokeObjectURL(Rec.url);
+  Rec.url = URL.createObjectURL(Rec.blob);
+  const seg = Math.max(1, Math.round((Date.now() - (Rec.t0 || Date.now())) / 1000));
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="audio-listo-t">✅ Audio grabado · ${seg} s</div>
+    <audio controls src="${Rec.url}"></audio>
+    <button type="button" class="btn ghost small" id="descAudio">Descartar y grabar de nuevo</button>`;
+  $("#descAudio").addEventListener("click", () => { descartarAudio(); aviso("Audio descartado."); });
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 function detener() {
+  clearInterval(Rec.tick);
   const conAudio = !!Rec.mr;
   Rec.activo = false;
   try { Rec.recog?.stop(); } catch (_) { }
@@ -278,7 +304,7 @@ async function analizar() {
     datos = data;
   } catch (e) {
     if (!texto) {
-      toast("La IA no pudo transcribir el audio. Escribe lo que pasó o inténtalo otra vez.", 5000);
+      toast("La IA aún no puede transcribir. Escribe lo que pasó en el cuadro y guarda: el audio se guarda igual.", 6000);
       btn.disabled = false; btn.textContent = "✨ Ordenar con IA";
       return;
     }
@@ -324,7 +350,7 @@ async function guardar() {
   const actividad = $("#fActividad").value.trim();
   const sel = $("#fNino").value;
   const extra = $("#fExtra").value.trim();
-  if (!actividad) { toast("Falta describir la actividad."); return; }
+  if (!actividad) { toast(Rec.blob ? "Falta la actividad: toca “Ordenar con IA” o escríbela. El audio se guarda igual." : "Falta describir la actividad."); return; }
   if (!sel) { toast("Elige un niño o un grupo."); return; }
   if ((sel === "__nuevo__" || sel === "__grupo__") && !extra) { toast("Escribe el nombre o el grupo."); return; }
   btn.disabled = true; btn.textContent = "Guardando…";
@@ -353,7 +379,7 @@ async function guardar() {
     });
     if (error) throw error;
     Rec.blob = null; Rec.chunks = [];
-    toast("✅ Registro guardado");
+    toast(audio_path ? "✅ Registro guardado con su audio" : "✅ Registro guardado");
     vistaGrabar();
   } catch (e) {
     console.error(e);

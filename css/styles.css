@@ -241,3 +241,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline
   .inf-seg{font-size:10pt;margin-top:3px;font-style:italic;color:#7a2d1a}
   .libro-wrap,.shelf,.filtros,details{display:none!important}
 }
+
+/* casillas visibles (el reset global las dejaba en blanco aunque estuvieran marcadas) */
+input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;accent-color:var(--primary);width:24px;height:24px;margin:0;padding:0;flex:none}
+.check{gap:12px}
+.audio-listo{margin:14px auto 4px;max-width:420px;padding:12px 14px;border-radius:14px;background:var(--soft);border:1px solid #cfe3dc;text-align:center}
+.audio-listo-t{font-weight:700;color:var(--primary-d);margin-bottom:8px}
+.audio-listo audio{width:100%;margin-bottom:8px}
+.reg-date{font-family:"Kalam","Bradley Hand","Segoe Print","Comic Sans MS",cursive!important}
