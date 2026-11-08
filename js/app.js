@@ -197,8 +197,12 @@ function lanzarDictado(SR) {
       else partes.push(t);
     }
     $("#texto").value = (base ? base + " " : "") + partes.join(" ");
+    aviso("Escuchando…");
   };
-  r.onstart = () => aviso("Escuchando… habla con calma, en bloques cortos.");
+  r.onstart = () => aviso("Conectando con el dictado…");
+  r.onaudiostart = () => aviso("Micrófono activo. Di algo…");
+  r.onspeechstart = () => aviso("Te escucho…");
+  r.onnomatch = () => aviso("No entendí. Intenta hablar más cerca y más despacio.");
   r.onerror = e => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       aviso("El micrófono o el dictado está bloqueado. Revisa el permiso del sitio en el navegador."); detener();
