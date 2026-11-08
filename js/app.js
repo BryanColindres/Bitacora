@@ -198,15 +198,25 @@ function lanzarDictado(SR) {
     }
     $("#texto").value = (base ? base + " " : "") + partes.join(" ");
   };
+  r.onstart = () => aviso("Escuchando… habla con calma, en bloques cortos.");
   r.onerror = e => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      aviso("El micrófono o el dictado está bloqueado en este dispositivo."); detener();
+      aviso("El micrófono o el dictado está bloqueado. Revisa el permiso del sitio en el navegador."); detener();
+    } else if (e.error === "audio-capture") {
+      aviso("No encuentro el micrófono. Cierra otras apps que lo estén usando."); detener();
+    } else if (e.error === "network") {
+      aviso("El dictado necesita internet. Revisa tu conexión.");
+    } else if (e.error !== "no-speech" && e.error !== "aborted") {
+      aviso("Dictado: " + e.error);
     }
   };
   r.onend = () => {
     if (!Rec.activo) return;
     base = $("#texto").value.trim();   // al reiniciar, los resultados vuelven a cero
-    try { r.start(); } catch (_) { }
+    setTimeout(() => {
+      if (!Rec.activo) return;
+      try { r.start(); } catch (_) { lanzarDictado(SR); }
+    }, 300);
   };
   try { r.start(); } catch (_) { }
   Rec.recog = r;
