@@ -28,15 +28,16 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
 
   try {
-    const { texto, ninos = [], hoy } = await req.json();
-    if (!texto || typeof texto !== "string") return json({ error: "Falta el texto" }, 400);
+    const { texto = "", ninos = [], hoy, audio, mime } = await req.json();
+    if (typeof texto !== "string" || (!texto && !audio)) return json({ error: "Falta el texto o el audio" }, 400);
 
     const key = Deno.env.get("GEMINI_API_KEY");
     if (!key) return json({ error: "Falta GEMINI_API_KEY en los secretos" }, 500);
     const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
 
     const prompt = `Eres un asistente que ordena notas de una maestra de apoyo de aprendizaje en español.
-Lee el dictado y devuelve SOLO un JSON con estas claves:
+Lee el dictado (texto y/o audio adjunto) y devuelve SOLO un JSON con estas claves:
+- transcripcion: transcripción fiel de lo dicho en el audio (o el texto recibido si no hay audio).
 - nombre: nombre, iniciales o apodo del niño mencionado (null si habla de un grupo o no hay). Si coincide con uno de la lista de niños registrados, usa EXACTAMENTE ese texto de la lista.
 - grupo: descripción si habla de varios niños (ej. "Tercer grado"), si no null.
 - grado: grado escolar mencionado (ej. "Cuarto grado"), o null.
@@ -49,7 +50,7 @@ Lee el dictado y devuelve SOLO un JSON con estas claves:
 
 Niños registrados: ${JSON.stringify(ninos)}
 
-Dictado:
+Dictado escrito (puede estar vacío si solo hay audio):
 """${texto.slice(0, 4000)}"""`;
 
     const r = await fetch(
@@ -58,7 +59,7 @@ Dictado:
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [{ parts: [{ text: prompt }, ...(audio ? [{ inlineData: { mimeType: mime || "audio/mp4", data: audio } }] : [])] }],
           generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
         }),
       },

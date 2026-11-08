@@ -75,9 +75,9 @@ function vistaGrabar() {
     <div class="card">
       <div class="rec-zone">
         <button id="mic" class="mic" aria-label="Grabar">🎙️</button>
-        <div id="recStatus" class="rec-status">Toca el micrófono y di, por ejemplo: “J.R., cuarto grado, hoy trabajamos…”</div>
-        <label class="check" style="justify-content:center;margin:6px 0 0"><input type="checkbox" id="chkAudio" checked> Guardar también el audio</label>
-        <div class="hint">Si el dictado falla en el iPad, desmarca “Guardar audio” e inténtalo de nuevo.</div>
+        <div id="recStatus" class="rec-status">Toca el micrófono, habla y vuelve a tocar para terminar. Ej.: “J.R., cuarto grado, hoy trabajamos…”</div>
+        <label class="check" style="justify-content:center;margin:6px 0 0"><input type="checkbox" id="chkAudio" checked> Grabar audio (la IA lo transcribe y lo guarda)</label>
+        <div class="hint">Recomendado. Si lo desmarcas se usa el dictado del navegador, que depende del dispositivo.</div>
       </div>
     </div>
 
@@ -175,6 +175,7 @@ async function iniciar() {
     }
   }
 
+  if (Rec.mr) { aviso("Grabando… toca el botón para terminar."); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { aviso("Este navegador no tiene dictado. Escribe el texto a mano."); return; }
   lanzarDictado(SR);
@@ -227,13 +228,14 @@ function lanzarDictado(SR) {
 }
 
 function detener() {
+  const conAudio = !!Rec.mr;
   Rec.activo = false;
   try { Rec.recog?.stop(); } catch (_) { }
   try { if (Rec.mr && Rec.mr.state !== "inactive") Rec.mr.stop(); } catch (_) { }
   Rec.stream?.getTracks().forEach(t => t.stop());
   Rec.recog = null; Rec.stream = null;
   const mic = $("#mic"); if (mic) { mic.classList.remove("on"); mic.textContent = "🎙️"; }
-  aviso("Listo. Revisa el texto y toca “Ordenar con IA”.");
+  aviso(conAudio ? "Audio listo. Toca “Ordenar con IA” para transcribir y ordenar." : "Listo. Revisa el texto y toca “Ordenar con IA”.");
 }
 
 /* ---- análisis ---- */
@@ -261,14 +263,25 @@ function analisisLocal(texto) {
 async function analizar() {
   if (Rec.activo) detener();
   const texto = $("#texto").value.trim();
-  if (!texto) { toast("Primero dicta o escribe algo."); return; }
+  if (!texto && !Rec.blob) { toast("Primero graba, dicta o escribe algo."); return; }
   const btn = $("#btnAnalizar"); btn.disabled = true; btn.textContent = "Ordenando…";
   let datos;
   try {
-    const { data, error } = await sb.functions.invoke("extraer", { body: { texto, ninos: state.ninos.map(n => n.alias), hoy: hoyLocal() } });
+    const body = { texto, ninos: state.ninos.map(n => n.alias), hoy: hoyLocal() };
+    if (Rec.blob) {
+      if (Rec.blob.size > 8 * 1024 * 1024) throw new Error("audio muy largo");
+      body.audio = await blobABase64(Rec.blob);
+      body.mime = (Rec.mime || "audio/mp4").split(";")[0];
+    }
+    const { data, error } = await sb.functions.invoke("extraer", { body });
     if (error || !data || data.error) throw error || new Error(data?.error);
     datos = data;
   } catch (e) {
+    if (!texto) {
+      toast("La IA no pudo transcribir el audio. Escribe lo que pasó o inténtalo otra vez.", 5000);
+      btn.disabled = false; btn.textContent = "✨ Ordenar con IA";
+      return;
+    }
     datos = analisisLocal(texto);
     toast("La IA no respondió; usé reglas simples. Revisa los datos.", 4500);
   }
@@ -276,7 +289,17 @@ async function analizar() {
   btn.disabled = false; btn.textContent = "✨ Ordenar con IA";
 }
 
+function blobABase64(blob) {
+  return new Promise((ok, mal) => {
+    const fr = new FileReader();
+    fr.onload = () => ok(String(fr.result).split(",")[1]);
+    fr.onerror = () => mal(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
 function rellenar(d, texto) {
+  if (d.transcripcion && !$("#texto").value.trim()) { $("#texto").value = d.transcripcion; texto = d.transcripcion; }
   const match = d.nombre ? state.ninos.find(n => norm(n.alias) === norm(d.nombre)) : null;
   if (match) { poblarSelectNino(match.id); }
   else if (d.nombre) { poblarSelectNino("__nuevo__"); $("#fExtra").value = d.nombre; }
