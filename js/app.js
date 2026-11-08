@@ -526,7 +526,7 @@ async function vistaResumen(ninoId) {
   f.nino = f.nino || ""; f.grado = f.grado || ""; f.tipo = f.tipo || "";
 
   $("#main").innerHTML = `
-    <h2>Resumen</h2>
+    <h2 class="no-print">Resumen</h2>
     <details class="card no-print filtros">
       <summary>🔎 Filtros</summary>
       <div class="row">
@@ -565,7 +565,7 @@ function renderGeneral(regs, f) {
   const porNino = {}; regs.forEach(r => { if (r.nino_id) porNino[r.nino_id] = (porNino[r.nino_id] || 0) + 1; });
   const visibles = state.ninos.filter(n => n.activo || porNino[n.id]);
   $("#rCuerpo").innerHTML = `
-    <h3>Biblioteca</h3>
+    <h3 class="no-print">Biblioteca</h3>
     <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el avance de ese niño.</p>
     <div class="shelf no-print">
       ${visibles.map(n => `<button class="mini" data-id="${n.id}" style="${portadaStyle(n.id)}">
@@ -575,7 +575,11 @@ function renderGeneral(regs, f) {
         <span class="mini-n">${porNino[n.id] || 0} registro${porNino[n.id] === 1 ? "" : "s"}</span>
       </button>`).join("") || `<p class="muted">Aún no hay niños. Agrégalos en la pestaña Niños.</p>`}
     </div>
-    <h3>Resumen general · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
+    <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h3 style="margin:0">Resumen general · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
+      <button id="imprimirGen" class="btn primary small">🖨️ Imprimir informe</button>
+    </div>
+    <h3 class="solo-print">Informe general de apoyo · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
     ${statsHTML(regs)}
     <div class="row">
       <div class="card"><h3>Tipos de actividad</h3><div class="bars">${barrasHTML(conteoDe(regs, "tipo_actividad"))}</div></div>
@@ -583,6 +587,7 @@ function renderGeneral(regs, f) {
     </div>
     <h3>Detalle</h3>
     <div class="timeline">${regs.map(entradaHTML).join("") || `<p class="muted">No hay registros con estos filtros.</p>`}</div>`;
+  $("#imprimirGen").addEventListener("click", () => window.print());
   $$(".mini").forEach(b => b.addEventListener("click", () => { f.nino = b.dataset.id; vistaResumen(); }));
   enlazarEntradas(() => vistaResumen());
 }
@@ -603,6 +608,33 @@ function paginaRegistro(r, acc) {
       ${r.seguimiento && !r.seguimiento_hecho ? `<button class="btn small" data-act="hecho">Marcar seguimiento hecho</button>` : ""}
       <button class="btn danger small" data-act="borrar">Borrar</button>
     </div><div class="audio-slot"></div>` : ""}
+  </div>`;
+}
+
+function informeHTML(n, regs, f, cron) {
+  const tipos = conteoDe(regs, "tipo_actividad").map(([k, v]) => `${esc(k)} (${v})`).join(", ") || "—";
+  const estados = conteoDe(regs, "estado_emocional").map(([k, v]) => `${esc(k)} (${v})`).join(", ") || "—";
+  const pend = regs.filter(r => r.seguimiento && !r.seguimiento_hecho).length;
+  const hoy = new Date().toLocaleDateString("es-HN", { day: "numeric", month: "long", year: "numeric" });
+  return `<div class="informe" style="${portadaStyle(n.id)}">
+    <div class="inf-head">
+      <div class="inf-kicker">Informe de avance · Apoyo de aprendizaje en español</div>
+      <h1>${esc(n.alias)}</h1>
+      <div class="inf-sub">${n.grado ? esc(n.grado) + " · " : ""}Período: ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
+      <div class="inf-sub">Generado el ${hoy} · Documento confidencial</div>
+    </div>
+    <table class="inf-res">
+      <tr><th>Registros</th><td>${regs.length}</td><th>Seguimientos pendientes</th><td>${pend}</td></tr>
+      <tr><th>Actividades</th><td colspan="3">${tipos}</td></tr>
+      <tr><th>Estado emocional</th><td colspan="3">${estados}</td></tr>
+    </table>
+    <h3>Registro de actividades</h3>
+    ${cron.map(r => `<div class="inf-reg">
+      <div class="inf-fecha">${esc(fmtLarga(r.fecha))}</div>
+      <div class="inf-meta">${[r.tipo_actividad, r.estado_emocional ? "Ánimo: " + r.estado_emocional : "", r.grado].filter(Boolean).map(esc).join(" · ")}</div>
+      <p>${esc(r.actividad)}</p>
+      ${r.seguimiento ? `<div class="inf-seg">${r.seguimiento_hecho ? "Seguimiento realizado" : "Seguimiento pendiente"}${r.seguimiento_nota ? ": " + esc(r.seguimiento_nota) : ""}</div>` : ""}
+    </div>`).join("") || `<p>No hay registros en este período.</p>`}
   </div>`;
 }
 
@@ -642,18 +674,17 @@ function renderLibro(regs, f) {
         <button class="btn" id="pgNext" aria-label="Página siguiente">▶</button>
       </div>
       <div class="actions" style="justify-content:center">
+        <button id="imprimirLibro" class="btn primary small">🖨️ Imprimir informe</button>
         <button id="cerrarLibro" class="btn ghost small">📚 Cerrar libro</button>
       </div>
     </div>
-    <div class="book-print" style="${portadaStyle(n.id)}">
-      <h2>${esc(n.alias)}${n.grado ? " · " + esc(n.grado) : ""}</h2>
-      ${armar(false).map(p => `<div class="sheet">${p}</div>`).join("")}
-    </div>`;
+    ${informeHTML(n, regs, f, cron)}`;
 
   pintarLibro();
   if (nuevo) $(".libro-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
   $("#pgPrev").addEventListener("click", () => pasar(-1));
   $("#pgNext").addEventListener("click", () => pasar(1));
+  $("#imprimirLibro").addEventListener("click", () => window.print());
   $("#cerrarLibro").addEventListener("click", () => { f.nino = ""; libro.id = null; vistaResumen(); });
 
   const cover = $("#cover");
