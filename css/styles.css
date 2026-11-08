@@ -257,3 +257,7 @@ input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;accent-color:va
 .modal-card{background:#fff;border-radius:18px;padding:20px;width:min(100%,460px);box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal-card h3{margin-bottom:10px}
 .presets{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 16px}
+
+/* Todo el texto del cuaderno en negro */
+.sheet,.sheet *{--pen:#000}
+.reg-date,.reg-text,.reg-meta,.reg-seg,.reg-seg.ok,.reg-det,.pg-num,.reg-empty{color:#000!important}

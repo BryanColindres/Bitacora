@@ -273,9 +273,18 @@ function detener() {
 }
 
 /* ---- análisis ---- */
+// Quita "se trabajó con el niño JC en…" del inicio: ese dato ya va en su campo.
+function limpiarActividad(txt) {
+  const m = String(txt).match(/^\s*(?:hoy\s+)?(?:se\s+)?(?:trabaj[óo]|trabajamos|trabaj[eé]|hicimos|realiz[oó])\s+(?:con\s+(?:el|la|los|las)?\s*(?:ni[ñn][oa]s?|estudiantes?|alumn[oa]s?)?\s*[^,.;]{1,60}?\s+)?(?:en\s+|sobre\s+)/i);
+  if (!m || m[0].length > 90) return txt;
+  const r = String(txt).slice(m[0].length).trim();
+  return r ? r.charAt(0).toUpperCase() + r.slice(1) : txt;
+}
+
+
 function analisisLocal(texto) {
   const t = norm(texto);
-  const out = { nombre: null, grupal: false, participantes: null, seccion: null, grado: null, fecha: hoyLocal(), tipo_actividad: null, actividad: texto, estado_emocional: null, seguimiento: false, seguimiento_nota: null };
+  const out = { nombre: null, grupal: false, participantes: null, seccion: null, grado: null, fecha: hoyLocal(), tipo_actividad: null, actividad: limpiarActividad(texto), estado_emocional: null, seguimiento: false, seguimiento_nota: null };
   const n = state.ninos.find(n => t.includes(norm(n.alias)));
   if (n) out.nombre = n.alias;
   const g = [["primer", "Primer grado"], ["segundo", "Segundo grado"], ["tercer", "Tercer grado"], ["cuarto", "Cuarto grado"],
@@ -899,6 +908,20 @@ function pedirPeriodo(desde, hasta) {
   });
 }
 
+async function resumenIA(ent, regs, per) {
+  const registros = [...regs].reverse().map(r => ({
+    fecha: r.fecha, tipo: r.tipo_actividad, actividad: r.actividad,
+    ...(ent ? {} : { con: quienDe(r) }),
+    seguimiento: r.seguimiento ? (r.seguimiento_hecho ? "realizado" : "pendiente") + (r.seguimiento_nota ? ": " + r.seguimiento_nota : "") : null,
+  }));
+  const { data, error } = await sb.functions.invoke("extraer", { body: {
+    modo: "resumen", titulo: ent ? ent.titulo : "todos los niños",
+    periodo: `${fmtCorta(per.desde)} – ${fmtCorta(per.hasta)}`, registros } });
+  if (error) throw new Error("no se pudo contactar la IA");
+  if (!data || data.error || !data.resumen) throw new Error((data && data.error) || "respuesta vacía");
+  return data.resumen;
+}
+
 async function descargarInforme() {
   if (!ultimoInforme) { toast("Espera a que cargue el resumen."); return; }
   try {
@@ -908,15 +931,21 @@ async function descargarInforme() {
     toast("Preparando el informe…", 8000);
     const [, { data: regs, error }] = await Promise.all([cargarDocx(), traerRegistros(ent, per.desde, per.hasta, null)]);
     if (error) throw error;
-    const nombre = await armarWord(ent, regs, per);
-    toast("📄 Descargado: " + nombre, 5000);
+    let resumen = null, motivo = "";
+    if (regs.length) {
+      toast("Redactando el resumen con IA…", 15000);
+      try { resumen = await resumenIA(ent, regs, per); }
+      catch (e) { console.warn("Resumen IA:", e); motivo = " (sin resumen de IA: " + (e.message || "error") + ")"; }
+    }
+    const nombre = await armarWord(ent, regs, per, resumen);
+    toast("📄 Descargado: " + nombre + motivo, 6000);
   } catch (e) {
     console.error(e);
     toast("No se pudo crear el Word: " + (e.message || "error"), 6000);
   }
 }
 
-async function armarWord(ent, regs, f) {
+async function armarWord(ent, regs, f, resumen) {
   const D = window.docx;
   const col = (ent ? colorDe(ent.id) : PORTADAS[0]).a.slice(1).toUpperCase();
   const cron = [...regs].reverse();
@@ -956,27 +985,32 @@ async function armarWord(ent, regs, f) {
     const out = [
       P([T(cap(fmtLarga(r.fecha)) + (quien ? " · " + quien : ""), { bold: true, size: 23 })], { spacing: { before: 220, after: 20 }, keepNext: true, indent: { left: 180 }, border: borde }),
     ];
-    if (meta) out.push(P([T(meta, { size: 19, color: "666666" })], { keepNext: true, indent: { left: 180 }, border: borde }));
-    if (r.participantes) out.push(P([T("Participaron: " + r.participantes, { size: 20, color: "444444" })], { keepNext: true, indent: { left: 180 }, border: borde }));
+    if (meta) out.push(P([T(meta, { size: 19, color: "000000" })], { keepNext: true, indent: { left: 180 }, border: borde }));
+    if (r.participantes) out.push(P([T("Participaron: " + r.participantes, { size: 20, color: "000000" })], { keepNext: true, indent: { left: 180 }, border: borde }));
     out.push(P(lineas.map((l, i) => T(l, { size: 22, break: i ? 1 : 0 })), { spacing: { after: 40 }, indent: { left: 180 }, border: borde }));
-    if (r.seguimiento) out.push(P([T(`Seguimiento ${r.seguimiento_hecho ? "realizado" : "pendiente"}${r.seguimiento_nota ? ": " + r.seguimiento_nota : ""}`, { italics: true, size: 21, color: "7A2D1A" })], { indent: { left: 180 }, border: borde }));
+    if (r.seguimiento) out.push(P([T(`Seguimiento ${r.seguimiento_hecho ? "realizado" : "pendiente"}${r.seguimiento_nota ? ": " + r.seguimiento_nota : ""}`, { italics: true, size: 21, color: "000000" })], { indent: { left: 180 }, border: borde }));
     return out;
   });
 
   const doc = new D.Document({
     creator: "Bitácora de apoyo",
     title: titulo,
-    styles: { default: { document: { run: { font: "Calibri", size: 22 } } } },
+    styles: { default: { document: { run: { font: "Calibri", size: 22, color: "000000" } } },
+      paragraphStyles: [{ id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: "Calibri", size: 28, bold: true, color: "000000" } }] },
     sections: [{
       properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } },
       children: [
-        P([T("INFORME DE PROCESO · APOYO DE APRENDIZAJE EN ESPAÑOL", { bold: true, size: 18, color: col })]),
-        P([T(titulo, { bold: true, size: 52, color: col })], { spacing: { after: 60 } }),
-        P([T(sub, { size: 22, color: "444444" })]),
-        ...(typeof CONFIG !== "undefined" && CONFIG.DOCENTE ? [P([T("Docente de apoyo: " + CONFIG.DOCENTE, { size: 22, color: "444444" })])] : []),
-        P([T(`Generado el ${hoy} · Documento confidencial`, { size: 20, color: "666666" })], { spacing: { after: 240 }, border: { bottom: { style: D.BorderStyle.SINGLE, size: 12, color: col, space: 6 } } }),
+        P([T("INFORME DE PROCESO · APOYO DE APRENDIZAJE EN ESPAÑOL", { bold: true, size: 18, color: "000000" })]),
+        P([T(titulo, { bold: true, size: 52, color: "000000" })], { spacing: { after: 60 } }),
+        P([T(sub, { size: 22, color: "000000" })]),
+        ...(typeof CONFIG !== "undefined" && CONFIG.DOCENTE ? [P([T("Docente de apoyo: " + CONFIG.DOCENTE, { size: 22, color: "000000" })])] : []),
+        P([T(`Generado el ${hoy} · Documento confidencial`, { size: 20, color: "000000" })], { spacing: { after: 240 }, border: { bottom: { style: D.BorderStyle.SINGLE, size: 12, color: col, space: 6 } } }),
         tabla,
-        P([T("Registro de actividades", { bold: true, size: 28, color: col })], { spacing: { before: 340, after: 120 }, heading: D.HeadingLevel.HEADING_2 }),
+        ...(resumen ? [
+          P([T("Resumen del proceso", { bold: true, size: 28, color: "000000" })], { spacing: { before: 340, after: 120 }, heading: D.HeadingLevel.HEADING_2 }),
+          ...String(resumen).split(/\n{2,}|\n/).map(x => x.trim()).filter(Boolean).map(x => P([T(x, { size: 22 })], { spacing: { after: 100 }, alignment: D.AlignmentType.JUSTIFIED })),
+        ] : []),
+        P([T("Registro de actividades", { bold: true, size: 28, color: "000000" })], { spacing: { before: 340, after: 120 }, heading: D.HeadingLevel.HEADING_2 }),
         ...(entradas.length ? entradas : [P([T("No hay registros en este período.", { size: 22 })])]),
       ],
     }],
