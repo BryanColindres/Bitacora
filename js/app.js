@@ -183,22 +183,31 @@ async function iniciar() {
 function lanzarDictado(SR) {
   const r = new SR();
   r.lang = "es-419"; r.continuous = true; r.interimResults = true;
-  const previo = $("#texto").value.trim();
-  let fin = previo ? previo + " " : "";
+  let base = $("#texto").value.trim();
+  // Chrome en Android reenvía frases acumuladas: se reconstruye todo desde cero
+  // en cada evento y se reemplaza (no se agrega) si un resultado extiende al anterior.
   r.onresult = e => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) fin += t.trim() + " "; else interim += t;
+    const partes = [];
+    for (let i = 0; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript.trim();
+      if (!t) continue;
+      const ult = partes[partes.length - 1];
+      if (ult !== undefined && norm(t).startsWith(norm(ult))) partes[partes.length - 1] = t;
+      else if (ult !== undefined && norm(ult).startsWith(norm(t))) continue;
+      else partes.push(t);
     }
-    $("#texto").value = (fin + interim).trim();
+    $("#texto").value = (base ? base + " " : "") + partes.join(" ");
   };
   r.onerror = e => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       aviso("El micrófono o el dictado está bloqueado en este dispositivo."); detener();
     }
   };
-  r.onend = () => { if (Rec.activo) { try { r.start(); } catch (_) { } } };
+  r.onend = () => {
+    if (!Rec.activo) return;
+    base = $("#texto").value.trim();   // al reiniciar, los resultados vuelven a cero
+    try { r.start(); } catch (_) { }
+  };
   try { r.start(); } catch (_) { }
   Rec.recog = r;
 }
