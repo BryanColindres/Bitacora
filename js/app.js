@@ -588,27 +588,17 @@ function renderGeneral(regs, f) {
 }
 
 /* ---- libro de un niño ---- */
-function paginaResumen(regs, f, n) {
-  return `<div class="pg-kicker">Avance</div>
-    <h3 class="pg-title">${esc(n.alias)}</h3>
-    <div class="muted" style="margin-bottom:12px">${n.grado ? esc(n.grado) + " · " : ""}${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</div>
-    ${statsHTML(regs, "compact")}
-    <h4>Tipos de actividad</h4><div class="bars">${barrasHTML(conteoDe(regs, "tipo_actividad"))}</div>
-    <h4>Estado emocional</h4><div class="bars">${barrasHTML(conteoDe(regs, "estado_emocional"), true)}</div>`;
-}
+const fmtLarga = f => { if (!f) return ""; const [y, m, d] = f.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-HN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); };
 
 function paginaRegistro(r, acc) {
+  const meta = [r.tipo_actividad, r.estado_emocional ? "ánimo: " + r.estado_emocional.toLowerCase() : ""].filter(Boolean).join(" · ");
+  const seg = r.seguimiento ? (r.seguimiento_hecho ? "✔ Seguimiento hecho" : "★ Pendiente") + (r.seguimiento_nota ? ": " + r.seguimiento_nota : "") : "";
   return `<div class="reg" data-id="${r.id}" data-audio="${esc(r.audio_path || "")}">
-    <div class="reg-date">${fmtFecha(r.fecha)}</div>
-    <div class="reg-pills">
-      ${r.tipo_actividad ? `<span class="pill">${esc(r.tipo_actividad)}</span>` : ""}
-      ${r.estado_emocional ? `<span class="pill accent">${esc(r.estado_emocional)}</span>` : ""}
-      ${r.grado ? `<span class="pill">${esc(r.grado)}</span>` : ""}
-      ${r.seguimiento ? `<span class="pill ${r.seguimiento_hecho ? "" : "warn"}">${r.seguimiento_hecho ? "✔ Seguimiento hecho" : "Seguimiento pendiente"}${r.seguimiento_nota ? ": " + esc(r.seguimiento_nota) : ""}</span>` : ""}
-    </div>
+    <div class="reg-date">${esc(fmtLarga(r.fecha))}</div>
     <p class="reg-text">${esc(r.actividad)}</p>
-    ${acc && r.transcripcion && r.transcripcion !== r.actividad ? `<details class="reg-det"><summary>Ver lo que se dictó</summary><p>${esc(r.transcripcion)}</p></details>` : ""}
-    ${acc ? `<div class="actions" style="margin-top:12px">
+    ${meta ? `<div class="reg-meta">${esc(meta)}</div>` : ""}
+    ${seg ? `<div class="reg-seg ${r.seguimiento_hecho ? "ok" : ""}">${esc(seg)}</div>` : ""}
+    ${acc ? `<div class="reg-tools">
       ${r.audio_path ? `<button class="btn small" data-act="audio">▶ Escuchar audio</button>` : ""}
       ${r.seguimiento && !r.seguimiento_hecho ? `<button class="btn small" data-act="hecho">Marcar seguimiento hecho</button>` : ""}
       <button class="btn danger small" data-act="borrar">Borrar</button>
@@ -624,9 +614,8 @@ function renderLibro(regs, f) {
   libro.ancho = window.innerWidth >= 860;
   const cron = [...regs].reverse();              // del más antiguo al más reciente, como un diario
   const armar = acc => [
-    paginaResumen(regs, f, n),
     ...cron.map(r => paginaRegistro(r, acc)),
-    ...(cron.length ? [] : [`<div class="reg-empty">Aún no hay registros para ${esc(n.alias)} con estos filtros.</div>`]),
+    ...(cron.length ? [] : [`<div class="reg-empty">Todavía no hay nada escrito de ${esc(n.alias)} en estas fechas.</div>`]),
   ];
   libro.pages = armar(true);
 

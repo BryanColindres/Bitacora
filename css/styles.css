@@ -197,3 +197,22 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline
 .filtros summary::-webkit-details-marker{display:none}
 .filtros[open] summary{margin-bottom:14px}
 .libro-wrap{scroll-margin-top:110px}
+
+/* ===== Hojas escritas a mano ===== */
+.sheet{padding:32px 18px 48px 46px;background-position:0 0;
+  background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,rgba(70,100,160,.30) 31px,rgba(70,100,160,.30) 32px)}
+.sheet,.sheet *{--pen:#1f3b73}
+.reg,.reg-empty{font-family:"Kalam","Bradley Hand","Segoe Print","Comic Sans MS",cursive;color:var(--pen)}
+.reg-date{font-size:1.3rem;font-weight:700;line-height:32px;margin:0;color:var(--pen);display:block}
+.reg-date::first-letter{text-transform:uppercase}
+.reg-text{font-size:1.15rem;line-height:32px;margin:0;white-space:pre-wrap;color:var(--pen)}
+.reg-meta{font-size:1rem;line-height:32px;color:#6b6f80;margin:0}
+.reg-seg{font-size:1.05rem;line-height:32px;color:#b3402a;margin:0}
+.reg-seg.ok{color:#3f7d6e}
+.reg-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+.reg-empty{margin-top:32px;text-align:left;font-size:1.2rem;line-height:32px}
+.reg audio{width:100%;margin-top:10px}
+@media print{
+  .book-print .sheet{background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,rgba(70,100,160,.30) 31px,rgba(70,100,160,.30) 32px);padding:32px 14px 20px 40px}
+}
+.reg-date{text-transform:none!important;font-size:1.2rem}
