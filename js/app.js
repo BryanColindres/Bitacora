@@ -559,10 +559,52 @@ function entradaHTML(r) {
     <div class="actions no-print" style="margin-top:10px">
       ${r.audio_path ? `<button class="btn small" data-act="audio">▶ Escuchar audio</button>` : ""}
       ${r.seguimiento && !r.seguimiento_hecho ? `<button class="btn small" data-act="hecho">Marcar seguimiento hecho</button>` : ""}
+      <button class="btn small" data-act="editar">✏️ Editar</button>
       <button class="btn danger small" data-act="borrar">Borrar</button>
     </div>
     <div class="audio-slot"></div>
   </div>`;
+}
+
+async function editarRegistro(id, refrescar) {
+  const { data: r, error } = await sb.from("registros").select("*").eq("id", id).single();
+  if (error || !r) { toast("No se pudo abrir el registro."); return; }
+  const op = (lista, v) => lista.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    <h3>Editar registro</h3>
+    ${r.grupal ? `<p class="hint">Es un registro grupal: el cambio se ve en el libro grupal y en el de cada niño que participó.</p>` : ""}
+    <label>Fecha<input id="eFecha" type="date" value="${esc(r.fecha || "")}"></label>
+    <label>Tipo de actividad<select id="eTipo"><option value="">—</option>${op(TIPOS, r.tipo_actividad)}</select></label>
+    <label>Estado emocional<select id="eEstado"><option value="">—</option>${op(ESTADOS, r.estado_emocional)}</select></label>
+    <label>Actividad realizada<textarea id="eAct" rows="6">${esc(r.actividad || "")}</textarea></label>
+    <label class="check"><input id="eSeg" type="checkbox" ${r.seguimiento ? "checked" : ""}> Queda seguimiento pendiente</label>
+    <label id="eSegWrap" class="${r.seguimiento ? "" : "hidden"}">¿Qué queda pendiente?<input id="eSegNota" type="text" value="${esc(r.seguimiento_nota || "")}"></label>
+    <p id="eMsg" class="msg"></p>
+    <div class="actions">
+      <button type="button" id="eOk" class="btn primary">Guardar cambios</button>
+      <button type="button" id="eNo" class="btn ghost">Cancelar</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  const q = sel => bg.querySelector(sel);
+  q("#eSeg").addEventListener("change", e => q("#eSegWrap").classList.toggle("hidden", !e.target.checked));
+  q("#eNo").addEventListener("click", () => bg.remove());
+  bg.addEventListener("click", e => { if (e.target === bg) bg.remove(); });
+  q("#eOk").addEventListener("click", async () => {
+    const actividad = q("#eAct").value.trim();
+    if (!actividad) { q("#eMsg").textContent = "La actividad no puede quedar vacía."; return; }
+    if (!q("#eFecha").value) { q("#eMsg").textContent = "Falta la fecha."; return; }
+    const seg = q("#eSeg").checked;
+    q("#eOk").disabled = true;
+    const { error } = await sb.from("registros").update({
+      fecha: q("#eFecha").value, tipo_actividad: q("#eTipo").value || null, estado_emocional: q("#eEstado").value || null,
+      actividad, seguimiento: seg, seguimiento_nota: seg ? (q("#eSegNota").value.trim() || null) : null,
+      seguimiento_hecho: seg ? !!r.seguimiento_hecho : false,
+    }).eq("id", id);
+    if (error) { q("#eOk").disabled = false; q("#eMsg").textContent = "No se pudo guardar. Intenta de nuevo."; return; }
+    bg.remove(); toast("Cambios guardados"); refrescar();
+  });
 }
 
 function enlazarEntradas(refrescar) {
@@ -576,6 +618,8 @@ function enlazarEntradas(refrescar) {
         $(".audio-slot", el).innerHTML = `<audio controls autoplay src="${data.signedUrl}"></audio>`;
       } else if (act === "hecho") {
         await sb.from("registros").update({ seguimiento_hecho: true }).eq("id", id); refrescar();
+      } else if (act === "editar") {
+        await editarRegistro(id, refrescar);
       } else if (act === "borrar") {
         if (!confirm(el.dataset.grupal ? "Este registro es grupal: se borrará del libro grupal y del libro de todos los niños que participaron. ¿Seguir?" : "¿Borrar este registro? No se puede deshacer.")) return;
         if (el.dataset.audio) await sb.storage.from("audios").remove([el.dataset.audio]);
@@ -747,6 +791,7 @@ function paginaRegistro(r, acc) {
     ${acc ? `<div class="reg-tools">
       ${r.audio_path ? `<button class="btn small" data-act="audio">▶ Escuchar audio</button>` : ""}
       ${r.seguimiento && !r.seguimiento_hecho ? `<button class="btn small" data-act="hecho">Marcar seguimiento hecho</button>` : ""}
+      <button class="btn small" data-act="editar">✏️ Editar</button>
       <button class="btn danger small" data-act="borrar">Borrar</button>
     </div><div class="audio-slot"></div>` : ""}
   </div>`;
