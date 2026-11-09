@@ -47,3 +47,6 @@ Todo en capas gratuitas. Nada que instalar en el iPad: solo se abre el enlace en
 2. Un registro grupal se guarda en el libro grupal (grado + sección) y en el libro individual
    de cada niño que participó. Los participantes que no existan se crean con el grado y la
    sección del grupo. Al eliminar un niño, sus registros grupales se conservan.
+
+## Publicar cambios sin cambiar el enlace
+La página lee `version.txt` sin caché y con ese número carga `app.js` y `styles.css`. Cada vez que cambies código, sube el número de `version.txt` (20 → 21…). Quien ya tiene el enlace recibe la versión nueva al recargar.

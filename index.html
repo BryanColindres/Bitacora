@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=19">
+<style id="ocultar">body{visibility:hidden}</style>
 </head>
 <body>
 
@@ -47,7 +47,20 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/config.js?v=2"></script>
-<script src="js/app.js?v=19"></script>
+<script>
+/* Cargador: lee version.txt sin caché para que los cambios lleguen sin cambiar el enlace. */
+(async () => {
+  const mostrar = () => { const o = document.getElementById("ocultar"); if (o) o.remove(); };
+  setTimeout(mostrar, 4000);
+  let v = "0";
+  try { const r = await fetch("version.txt", { cache: "no-store" }); if (r.ok) v = (await r.text()).trim() || "0"; } catch (e) {}
+  const css = document.createElement("link");
+  css.rel = "stylesheet"; css.href = "css/styles.css?v=" + v; document.head.appendChild(css);
+  await new Promise(ok => { css.onload = css.onerror = ok; setTimeout(ok, 3000); });
+  mostrar();
+  for (const src of ["js/config.js", "js/app.js"])
+    await new Promise(ok => { const s = document.createElement("script"); s.src = src + "?v=" + v; s.onload = s.onerror = ok; document.body.appendChild(s); });
+})();
+</script>
 </body>
 </html>
