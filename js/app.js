@@ -748,14 +748,21 @@ function renderGeneral(regs, f) {
     if (!r.nino_id && (r.grupal || r.grupo)) { const k = claveGrupo(r.grado, r.seccion); porGrupo[k] = (porGrupo[k] || 0) + 1; }
   });
   const libros = [
-    ...(state.grupos || []).map(k => ({ id: k, nombre: "Grupal", sub: entidad(k).sub, n: porGrupo[k] || 0 })),
-    ...state.ninos.map(n => ({ id: n.id, nombre: n.alias, sub: gradoTxt(n.grado, n.seccion), n: porNino[n.id] || 0 })),
+    ...(state.grupos || []).map(k => ({ id: k, nombre: "Grupal", sub: entidad(k).sub, grado: entidad(k).grado || "", grupal: true, n: porGrupo[k] || 0 })),
+    ...state.ninos.map(n => ({ id: n.id, nombre: n.alias, sub: gradoTxt(n.grado, n.seccion), grado: n.grado || "", grupal: false, n: porNino[n.id] || 0 })),
   ];
+  const bib = state.bib = state.bib || { q: "", c: "" };
+  const gradosHay = GRADOS.filter(g => libros.some(b => b.grado === g));
+  const chip = (v, t) => `<button type="button" class="chip ${bib.c === v ? "on" : ""}" data-c="${esc(v)}">${esc(t)}</button>`;
   $("#rCuerpo").innerHTML = `
     <h3 class="no-print">Biblioteca</h3>
-    <p class="muted no-print" style="margin-top:-4px">Toca un libro para abrir el proceso de ese niño o del grupo.</p>
+    <div class="bib-tools no-print">
+      <input id="bibQ" type="search" placeholder="🔎 Buscar niño o grupo…" value="${esc(bib.q)}" autocomplete="off">
+      <div class="chips">${chip("", "Todos")}${chip("__nino", "Niños")}${chip("__grupal", "Grupales")}${gradosHay.map(g => chip(g, g.replace(" grado", ""))).join("")}</div>
+      <p id="bibN" class="muted"></p>
+    </div>
     <div class="shelf no-print">
-      ${libros.map(b => `<button class="mini" data-id="${esc(b.id)}" style="${portadaStyle(b.id)}">
+      ${libros.map(b => `<button class="mini" data-id="${esc(b.id)}" data-q="${esc(norm(b.nombre + " " + b.sub))}" data-g="${esc(b.grado)}" data-t="${b.grupal ? "__grupal" : "__nino"}" style="${portadaStyle(b.id)}">
         <span class="mini-spine"></span>
         <span class="mini-name">${esc(b.nombre)}</span>
         <span class="mini-sub">${esc(b.sub)}</span>
@@ -775,6 +782,18 @@ function renderGeneral(regs, f) {
     <div class="timeline">${regs.map(entradaHTML).join("") || `<p class="muted">No hay registros con estos filtros.</p>`}</div>`;
   $("#imprimirGen").addEventListener("click", descargarInforme);
   $$(".mini").forEach(b => b.addEventListener("click", () => { f.nino = b.dataset.id; vistaResumen(); }));
+  const filtrarBib = () => {
+    const q = norm(bib.q.trim()); let vis = 0;
+    $$(".mini").forEach(b => {
+      const ok = (!q || b.dataset.q.includes(q)) && (!bib.c || b.dataset.t === bib.c || b.dataset.g === bib.c);
+      b.classList.toggle("hidden", !ok); if (ok) vis++;
+    });
+    $$(".bib-tools .chip").forEach(c => c.classList.toggle("on", c.dataset.c === bib.c));
+    $("#bibN").textContent = vis === libros.length ? `${libros.length} libros · toca uno para abrirlo` : `${vis} de ${libros.length} libros`;
+  };
+  $("#bibQ").addEventListener("input", e => { bib.q = e.target.value; filtrarBib(); });
+  $$(".bib-tools .chip").forEach(c => c.addEventListener("click", () => { bib.c = c.dataset.c; filtrarBib(); }));
+  filtrarBib();
   enlazarEntradas(() => vistaResumen());
 }
 
