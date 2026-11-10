@@ -276,3 +276,4 @@ input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;accent-color:va
 .mini-sub{font-size:.7rem}
 .mini-n{font-size:.66rem;margin-top:4px;padding-top:4px}
 .mini.hidden{display:none}
+.bib-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:-10px 0 26px}.bib-pager .muted{margin:0;font-size:.9rem}

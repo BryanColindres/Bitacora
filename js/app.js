@@ -769,6 +769,11 @@ function renderGeneral(regs, f) {
         <span class="mini-n">${b.n} registro${b.n === 1 ? "" : "s"}</span>
       </button>`).join("") || `<p class="muted">Aún no hay libros. Agrega niños en la pestaña Niños o guarda un registro.</p>`}
     </div>
+    <div id="bibPager" class="bib-pager no-print">
+      <button type="button" id="bibPrev" class="btn small">◀ Anterior</button>
+      <span id="bibInd" class="muted"></span>
+      <button type="button" id="bibNext" class="btn small">Siguiente ▶</button>
+    </div>
     <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <h3 style="margin:0">Resumen general · ${fmtCorta(f.desde)} – ${fmtCorta(f.hasta)}</h3>
       <button id="imprimirGen" class="btn primary small">📄 Descargar Word</button>
@@ -782,17 +787,24 @@ function renderGeneral(regs, f) {
     <div class="timeline">${regs.map(entradaHTML).join("") || `<p class="muted">No hay registros con estos filtros.</p>`}</div>`;
   $("#imprimirGen").addEventListener("click", descargarInforme);
   $$(".mini").forEach(b => b.addEventListener("click", () => { f.nino = b.dataset.id; vistaResumen(); }));
+  const POR_PAG = 9;
   const filtrarBib = () => {
-    const q = norm(bib.q.trim()); let vis = 0;
-    $$(".mini").forEach(b => {
-      const ok = (!q || b.dataset.q.includes(q)) && (!bib.c || b.dataset.t === bib.c || b.dataset.g === bib.c);
-      b.classList.toggle("hidden", !ok); if (ok) vis++;
-    });
+    const q = norm(bib.q.trim());
+    const ok = [...$$(".mini")].filter(b => (!q || b.dataset.q.includes(q)) && (!bib.c || b.dataset.t === bib.c || b.dataset.g === bib.c));
+    const pags = Math.max(1, Math.ceil(ok.length / POR_PAG));
+    bib.p = Math.min(Math.max(0, bib.p || 0), pags - 1);
+    const visibles = new Set(ok.slice(bib.p * POR_PAG, bib.p * POR_PAG + POR_PAG));
+    $$(".mini").forEach(b => b.classList.toggle("hidden", !visibles.has(b)));
     $$(".bib-tools .chip").forEach(c => c.classList.toggle("on", c.dataset.c === bib.c));
-    $("#bibN").textContent = vis === libros.length ? `${libros.length} libros · toca uno para abrirlo` : `${vis} de ${libros.length} libros`;
+    $("#bibN").textContent = ok.length === libros.length ? `${libros.length} libros · toca uno para abrirlo` : `${ok.length} de ${libros.length} libros`;
+    $("#bibPager").classList.toggle("hidden", pags <= 1);
+    $("#bibInd").textContent = `Página ${bib.p + 1} de ${pags}`;
+    $("#bibPrev").disabled = bib.p <= 0; $("#bibNext").disabled = bib.p >= pags - 1;
   };
-  $("#bibQ").addEventListener("input", e => { bib.q = e.target.value; filtrarBib(); });
-  $$(".bib-tools .chip").forEach(c => c.addEventListener("click", () => { bib.c = c.dataset.c; filtrarBib(); }));
+  $("#bibQ").addEventListener("input", e => { bib.q = e.target.value; bib.p = 0; filtrarBib(); });
+  $$(".bib-tools .chip").forEach(c => c.addEventListener("click", () => { bib.c = c.dataset.c; bib.p = 0; filtrarBib(); }));
+  $("#bibPrev").addEventListener("click", () => { bib.p--; filtrarBib(); });
+  $("#bibNext").addEventListener("click", () => { bib.p++; filtrarBib(); });
   filtrarBib();
   enlazarEntradas(() => vistaResumen());
 }
